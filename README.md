@@ -23,10 +23,13 @@ No account. Nothing uploaded. One runtime dependency (the official MCP SDK).
 ## Quickstart
 
 ```bash
-git clone https://github.com/SomehowLiving/sniffmcp && cd sniffmcp
-uv venv && uv pip install -e .          # Python 3.11+
-.venv/bin/sniffmcp fleet               # scan every server in your client configs
+uvx sniffmcp-cli fleet                  # run once, no install (Python 3.11+, uv)
+pipx install sniffmcp-cli               # or install: gives you the `sniffmcp` command
+sniffmcp fleet                          # scan every server in your client configs
 ```
+
+The PyPI package is `sniffmcp-cli` (PyPI reserves names too similar to an unrelated
+existing project); the command, module and repo are `sniffmcp`.
 
 ```text
 $ sniffmcp scan '{"command":"npx","args":["-y","@modelcontextprotocol/server-memory"]}'

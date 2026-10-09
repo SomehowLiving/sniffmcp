@@ -1,6 +1,6 @@
 [project]
-name = "sniffmcp"
-version = "0.4.0"
+name = "sniffmcp-cli"   # PyPI name; brand, repo, module and command stay "sniffmcp"
+version = "0.4.1"
 description = "Audit the MCP servers installed in your agent: injection, credentials, pinning, and post-install drift."
 readme = "README.md"
 license = "Apache-2.0"
@@ -30,6 +30,7 @@ Changelog = "https://github.com/SomehowLiving/sniffmcp/blob/main/CHANGELOG.md"
 
 [project.scripts]
 sniffmcp = "sniffmcp.cli:main"
+sniffmcp-cli = "sniffmcp.cli:main"   # so `uvx sniffmcp-cli ...` works without --from
 
 [build-system]
 requires = ["setuptools>=77"]

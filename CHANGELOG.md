@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 — 2026-10-09
+
+### Changed
+- PyPI distribution name is **`sniffmcp-cli`** (PyPI rejects `sniffmcp` as too similar to an
+  unrelated existing project). The command `sniffmcp`, the module and the repo are unchanged;
+  `sniffmcp-cli` is also installed as a command so `uvx sniffmcp-cli` works.
+
 ## 0.4.0 — 2026-10-09
 
 ### Changed
