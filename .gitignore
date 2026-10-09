@@ -1,0 +1,26 @@
+# Python / tooling
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Local data (crawl and watch databases live in ~/.mcp_audit by default)
+*.db
+*.db-wal
+*.db-shm
+
+# Crawl and benchmark output: names third-party servers. Publish deliberately,
+# after hand-checking and responsible disclosure, never as a side effect of a commit.
+reports/
+
+# Personal research and internal strategy notes (kept local)
+idea.md
+ideatin.md
+competition.md
+more-research.md
+PROJECT.md
+
+# Local scratch: cut code kept for reference
+_attic/

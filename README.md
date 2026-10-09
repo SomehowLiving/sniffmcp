@@ -1,0 +1,200 @@
+# mcp-audit
+
+**Audit the MCP servers plugged into your AI agent, locally, before and after you trust them.**
+
+mcp-audit connects to every MCP server in your Claude Code, Claude Desktop, Cursor or
+Windsurf config the way your client does, reads everything the model will read, and tells
+you what's risky:
+
+- 🕵️ **Hidden instructions** in tool descriptions, parameter descriptions, prompts and server instructions
+- ☠️ **Known malware and vulnerabilities** in the package that would launch, checked against [OSV.dev](https://osv.dev) **before it runs**
+- 🔑 **Plaintext credentials** in your client config (always redacted in output)
+- 📌 **Unpinned launches** (`npx pkg`, `uvx pkg`, `image:latest`)
+- ⚙️ **Powerful capabilities** worth keeping approval on, and annotations that misstate a tool as read-only
+- 🧬 **Post-install changes** (rug pulls), classified as *risky*, *breaking* or *benign*, so a wording tweak doesn't page you and a new hidden instruction does
+
+No account. Nothing uploaded. One runtime dependency (the official MCP SDK).
+
+## Quickstart
+
+```bash
+git clone https://github.com/SomehowLiving/mcp-audit && cd mcp-audit
+uv venv && uv pip install -e .          # Python 3.11+
+.venv/bin/mcp-audit fleet               # scan every server in your client configs
+```
+
+```text
+$ mcp-audit scan '{"command":"npx","args":["-y","@modelcontextprotocol/server-memory"]}'
+
+  npx -y @modelcontextprotocol/server-memory
+  score 89/100  grade B  (9 tools)
+  critical:0 high:0 medium:1 low:1 info:2
+  [medium  ] MA-07    npm package launched without an exact version
+             @modelcontextprotocol/server-memory
+  [low     ] MA-04    Has destructive tools
+             delete_entities, delete_observations, delete_relations
+```
+
+Known malware is reported **without ever being launched**:
+
+```text
+$ mcp-audit scan '{"command":"npx","args":["-y","@callcenter-frontend/api@99.0.2025091-3.10"]}'
+
+  score 34/100  grade F  (0 tools)
+  [critical] MA-11    Known malicious package: @callcenter-frontend/api@99.0.2025091-3.10
+             MAL-2025-41825 — Malicious code in @callcenter-frontend/api (npm)
+```
+
+## Commands
+
+```bash
+mcp-audit fleet                                  # every installed server (Claude Code incl. per-project, Claude Desktop, Cursor, Windsurf, .mcp.json)
+mcp-audit scan https://mcp.example.com/mcp       # one remote server
+mcp-audit scan cfg.json --format sarif --output results.sarif   # GitHub code scanning
+mcp-audit scan cfg.json --baseline last.json --fail-on high     # CI gate; known findings don't fail
+mcp-audit watch cfg.json --name memory --webhook https://hooks.slack.com/...   # baseline + watch
+mcp-audit watch --name memory --accept           # accept the current version after review
+mcp-audit watch --run                            # check every watch on its interval
+mcp-audit crawl run --output reports/crawl.md    # ecosystem crawler (see below)
+```
+
+Exit codes: `0` clean · `1` finding at/above `--fail-on` · `2` bad config · `3` some servers not analysed.
+`--offline` skips OSV lookups.
+
+> **Scanning a stdio server runs its command**, exactly as your client does at startup.
+> mcp-audit checks the package against OSV first and refuses to launch known malware,
+> but only scan configs you would run anyway.
+
+### Inside your agent
+
+```bash
+claude mcp add mcp-audit -- /path/to/mcp-audit/.venv/bin/python -m mcp_audit.server
+```
+
+Tools: `list_installed_servers`, `scan_server`, `score_server`, `scan_all_installed`,
+`analyze_tool_descriptions`, `watch_server`, `list_watches`.
+
+A model-callable "scan this command" tool would be a remote-code-execution hole, so in
+server mode targets must be servers already in your configs, or https URLs. Arbitrary
+commands need `MCP_AUDIT_ALLOW_COMMANDS=1`. HTTP mode binds to localhost only.
+
+## Checks
+
+| ID | What it catches | OWASP MCP Top 10 |
+|---|---|---|
+| INJ-HEUR | Instruction overrides, self-referential concealment ("don't tell the user about this step"), paired fake `<IMPORTANT>` tags, credential-path targeting, exfiltration ("send the contents of X to https://…"), base64 payloads, hidden Unicode, instructions to write into the agent's own config (skills, CLAUDE.md, AGENTS.md). Covers descriptions, titles and every nested parameter description | MCP03, MCP06 |
+| MA-01 | The same, in server-level instructions | MCP03, MCP06 |
+| MA-02 | Credentials in args or URLs (high), or in config env/headers (medium). `${VAR}` references are fine | MCP01 |
+| MA-03 | Post-install drift: risky / breaking / benign | MCP03, MCP04 |
+| MA-04 | Command-execution and destructive tools; read-only claims contradicted by the tool name | MCP02, MCP05 |
+| MA-05 | Tools that read secrets or the environment; resources at real secret paths | MCP10, MCP01 |
+| MA-06 | Remote servers over plain HTTP | MCP07 |
+| MA-07 | Package runners without an exact version; images without a digest | MCP04 |
+| MA-08 | Very large tool sets, duplicate tool names | MCP03 |
+| MA-09 | Injection in prompts | MCP03 |
+| MA-10 | `curl \| sh` launch commands, TLS verification disabled | MCP04, MCP07 |
+| MA-11 | **Known malware** (OSV / OpenSSF `MAL-`) for the package that would launch. Blocks the launch | MCP04 |
+| MA-12 | Known vulnerabilities (GHSA / PYSEC / CVE) at the pinned version, or today's latest if unpinned | MCP04 |
+| FLEET-01 | Same tool name exposed by two installed servers (shadowing) | MCP03 |
+
+IDs are mcp-audit's own; every finding also carries its OWASP categories (`owasp_mcp` in JSON, tags in SARIF).
+Scoring: 100 minus severity-weighted deductions (25/15/8/3, at most two per check). **Any critical caps the grade at F; any high at C.**
+
+### Precision over noise
+
+A scanner that flags everything gets uninstalled. Two rules govern detection here:
+
+1. **Popular legitimate servers must grade A/B.** Being able to write files or run commands is reported, not punished.
+2. **Every rule must stay silent on the real-world false-positive corpus** in `tests/test_checks.py`: 35 descriptions from live registry servers that once fooled a rule, such as accuracy instructions like "never tell the user the payment cleared", Persian text with zero-width joiners, contact links, public SSH keys, and security tools that *quote* attack phrases.
+
+On the 10,409 reachable servers in the official registry (2026-10-09), mcp-audit raises
+high/critical findings on 2. Both were checked by hand and both are real.
+
+## Ecosystem crawler
+
+The crawler builds a history of how the public MCP ecosystem changes.
+
+```bash
+mcp-audit crawl run      # sync + probe + packages + advisories + report
+mcp-audit crawl sync | probe | packages | advisories | report | rescore
+```
+
+| Stage | What it does |
+|---|---|
+| `sync` | Every latest entry in the official registry (`registry.modelcontextprotocol.io`) |
+| `probe` | Lists tools/resources/prompts on each public remote endpoint; stores a snapshot only when it changes; classifies each change |
+| `packages` | npm/PyPI release history from metadata: install scripts appearing, provenance or trusted publishing dropped, first release by a new publisher without provenance, source-only releases |
+| `advisories` | Every tracked package against OSV: malware in any version, vulnerabilities in the current latest |
+| `report` / `rescore` | Markdown summary; re-grade stored snapshots after a rule change |
+
+**Why it runs daily.** npm deletes malicious versions after takedown. On 2026-10-09, OSV listed
+past malware in four registry packages: three from the Shai-Hulud worm campaigns and one fake
+"local-only" scanner. Those versions are already gone from npm metadata. Only a crawler running
+*during* an attack records what happened.
+
+**Crawler rules:**
+- Probes public addresses only. Registry entries are untrusted, so nothing that resolves to loopback, LAN or cloud metadata is contacted.
+- List calls only; it never calls a tool.
+- At most 1 probe per endpoint per 20h, 2 at a time per host, 100 per host per run.
+- Endpoints that declare required auth are recorded but not probed.
+- Packages are never downloaded or executed.
+- Data stays local (`~/.mcp_audit/crawl.db`).
+
+Daily via cron:
+
+```cron
+17 6 * * * cd /path/to/mcp-audit && .venv/bin/mcp-audit crawl run --output reports/crawl-$(date +\%F).md >> ~/.mcp_audit/crawl.log 2>&1
+```
+
+## How it compares
+
+We learned a lot from the tools already here, and recommend them for what they do best:
+
+| | mcp-audit | [Snyk Agent Scan](https://github.com/snyk/agent-scan) (ex-Invariant mcp-scan) | [Cisco mcp-scanner](https://github.com/cisco-ai-defense/mcp-scanner) | [MCP-Sentinel](https://github.com/BashaarJavaid/MCP-Sentinel) |
+|---|---|---|---|---|
+| Scans | Installed servers, live | Installed servers, live | Servers/tools, live | Server **source** in CI |
+| Detection | Precision-tuned rules + OSV | Hosted analysis + rules | YARA + LLM judge + Cisco AI Defense | AST, Semgrep, LLM, Docker probes |
+| Account / upload | **None, fully local** | Snyk token; tool data sent to Snyk | Local YARA; APIs optional | LLM key for full value |
+| Drift | **Classified**, alert once | Hash pinning | Rug-pull checks | CI baselines |
+| Malware feed | OSV, **checked before launch** | Snyk platform | — | — |
+| Ecosystem dataset | **Daily registry crawl with history** | — | — | — |
+| Sees handler code | ❌ | ❌ | Partly | ✅ |
+| Maturity | New | Most mature (3k+ ★) | ~1k ★ | Early |
+
+Head-to-head on the same 10,409 registry servers (`scripts/benchmark_yara.py`): Cisco's YARA
+rules flag 17% of servers, and the hand-checked samples are mostly noise ("assert" triggers
+code execution, "benchmark" triggers SQL injection). But they surfaced one pattern we had missed,
+which is now a rule. Use more than one tool.
+
+## Known limits
+
+- **OAuth-protected servers can't be scanned yet.** That's about 36% of registry endpoints.
+- **Manifest only.** We see what a server *says*, not what its handlers *do*. Pair with source scanning for servers you build.
+- **Session-gated payloads evade polling.** A server that turns malicious after N tool calls inside a session shows its clean face to every fresh connection.
+- Heuristics are tuned for precision; a careful attacker can phrase around them.
+
+## Roadmap
+
+- OAuth support so auth-gated servers can be scanned
+- A public benchmark corpus (known attacks + real-world false positives) any scanner can be measured against
+- Optional LLM second opinion for ambiguous text (the hook exists: `analyze_descriptions(llm_hook=…)`)
+- A session proxy to catch payloads that only appear mid-session
+
+## Docs
+
+- [ARCHITECTURE.md](ARCHITECTURE.md): how it works, with diagrams, the OWASP mapping, and design decisions
+- [CONTRIBUTING.md](CONTRIBUTING.md): dev setup and the rules every detection change must pass
+- [SECURITY.md](SECURITY.md): reporting a vulnerability, and how crawl findings are disclosed
+- [CHANGELOG.md](CHANGELOG.md)
+
+## Acknowledgements
+
+- [Invariant Labs](https://invariantlabs.ai) for the tool-poisoning research our regression suite starts from
+- [OSV.dev](https://osv.dev) and the [OpenSSF malicious-packages](https://github.com/ossf/malicious-packages) project for malware and vulnerability data
+- [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/) for the shared risk taxonomy
+- [Cisco AI Defense](https://github.com/cisco-ai-defense/mcp-scanner) for the Apache-2.0 YARA rules we benchmark against (fetched at a pinned commit, not vendored)
+- Pillar Security and the Cloud Security Alliance for the Deadbugz analysis behind the drift checks
+
+## License
+
+[Apache-2.0](LICENSE)
