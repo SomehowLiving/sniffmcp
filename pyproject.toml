@@ -1,7 +1,7 @@
 [project]
 name = "sniffmcp-cli"   # PyPI name; brand, repo, module and command stay "sniffmcp"
 version = "0.4.1"
-description = "Audit the MCP servers installed in your agent: injection, credentials, pinning, and post-install drift."
+description = "Sniff out what your AI tools are hiding: local security checks for MCP servers (hidden instructions, known malware, leaked secrets, rug pulls)."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
