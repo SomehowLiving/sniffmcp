@@ -1,0 +1,65 @@
+name: release
+
+# Publishes to PyPI when a GitHub release is published, via trusted publishing (OIDC):
+# no API token is stored anywhere, and the upload carries a provenance attestation.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Tag must match package version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          test "$TAG" = "v$version" || { echo "::error::release tag $TAG != pyproject version v$version"; exit 1; }
+
+      - name: Test
+        env:
+          MCP_AUDIT_OFFLINE: "1"
+        run: |
+          uv venv && uv pip install -e '.[dev]'
+          .venv/bin/python -m pytest -q
+
+      - name: Build and check
+        run: |
+          uv build
+          uvx twine check dist/*
+
+      - name: Smoke-test the wheel in a clean venv
+        env:
+          MCP_AUDIT_OFFLINE: "1"
+        run: |
+          uv venv /tmp/smoke && uv pip install --python /tmp/smoke/bin/python dist/*.whl
+          /tmp/smoke/bin/mcp-audit --help >/dev/null
+          set +e; /tmp/smoke/bin/mcp-audit fleet tests/fixtures/action/.mcp.json --no-launch; code=$?
+          test "$code" = "1"   # the fixture's curl|sh server must be caught
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/mcp-audit/
+    permissions:
+      id-token: write   # trusted publishing; nothing else gets this permission
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

@@ -54,3 +54,11 @@ was built from our own mistakes, so it favours us.
 
 Small, focused PRs with tests. Describe what evidence motivated a detection change
 (anonymised examples are fine).
+
+## Releasing (maintainers)
+
+1. Bump `version` in `pyproject.toml` and `mcp_audit/__init__.py`, add a `CHANGELOG.md` entry.
+2. Commit, then create a GitHub release with tag `v<version>`.
+3. `.github/workflows/release.yml` tests, builds, smoke-tests the wheel and publishes to
+   PyPI through trusted publishing (no stored tokens; the upload carries provenance).
+   The release fails if the tag and `pyproject.toml` version disagree.
