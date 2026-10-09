@@ -27,8 +27,8 @@ from .injection import scan_text
 from .models import canonical_manifest_hash
 
 REGISTRY = "https://registry.modelcontextprotocol.io/v0/servers"
-USER_AGENT = f"mcp-audit-crawler/{__version__} (MCP ecosystem research; list calls only, ~1 probe/day)"
-CLIENT_NAME = "mcp-audit-crawler"
+USER_AGENT = f"sniffmcp-crawler/{__version__} (MCP ecosystem research; list calls only, ~1 probe/day)"
+CLIENT_NAME = "sniffmcp-crawler"
 DAY = 86400
 
 

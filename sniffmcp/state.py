@@ -1,6 +1,6 @@
 """Local SQLite store for watches, baselines, snapshots and alerts.
 
-Default path ~/.mcp_audit/state.db (override with MCP_AUDIT_STATE). Watch
+Default path ~/.sniffmcp/state.db (override with SNIFFMCP_STATE). Watch
 configs can hold credentials from the user's client config, so the file is
 created owner-read/write only.
 """
@@ -31,8 +31,8 @@ CREATE TABLE IF NOT EXISTS alerts(
 
 
 def default_path() -> str:
-    return os.environ.get("MCP_AUDIT_STATE") or os.path.join(
-        os.path.expanduser("~"), ".mcp_audit", "state.db")
+    return os.environ.get("SNIFFMCP_STATE") or os.path.join(
+        os.path.expanduser("~"), ".sniffmcp", "state.db")
 
 
 class Store:

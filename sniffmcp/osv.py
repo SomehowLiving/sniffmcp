@@ -7,7 +7,7 @@ databases (GHSA, PYSEC, CVE aliases). We use:
 
 Checks run *before* a stdio server is spawned: a scanner must not execute a package
 that is already known to be malware in order to find out it is malicious.
-Set MCP_AUDIT_OFFLINE=1 to skip all lookups.
+Set SNIFFMCP_OFFLINE=1 to skip all lookups.
 """
 from __future__ import annotations
 import asyncio, os, re
@@ -20,12 +20,12 @@ from .models import Finding
 API = "https://api.osv.dev/v1"
 ECOSYSTEM = {"npm": "npm", "pypi": "PyPI"}
 BATCH = 1000
-UA = {"User-Agent": f"mcp-audit/{__version__}"}
+UA = {"User-Agent": f"sniffmcp/{__version__}"}
 GHSA_SEVERITY = {"CRITICAL": "high", "HIGH": "high", "MODERATE": "medium", "MEDIUM": "medium", "LOW": "low"}
 
 
 def offline() -> bool:
-    return os.environ.get("MCP_AUDIT_OFFLINE") == "1"
+    return os.environ.get("SNIFFMCP_OFFLINE") == "1"
 
 
 def split_spec(ecosystem: str, spec: str) -> tuple[str, str | None]:
@@ -105,7 +105,7 @@ async def advisories_for_spec(ecosystem: str, spec: str) -> list[Finding]:
             at_version, any_version = await query_batch(http, [(ecosystem, name, version), (ecosystem, name, None)])
             info = await details(http, at_version + [i for i in any_version if i.startswith("MAL-")])
     except Exception as e:
-        return [Finding("MA-12", "info", "OSV lookup failed; package not checked for advisories",
+        return [Finding("SM-12", "info", "OSV lookup failed; package not checked for advisories",
                         f"{type(e).__name__}: {e}"[:200], "Retry online, or check https://osv.dev manually.")]
     where = f"{name}@{version}" if version else name
     note = "" if pinned else " (unpinned: this is today's latest, which is what npx/uvx would run)"
@@ -113,15 +113,15 @@ async def advisories_for_spec(ecosystem: str, spec: str) -> list[Finding]:
     for vid in at_version:
         v = info.get(vid, {"id": vid})
         if vid.startswith("MAL-"):
-            out.append(Finding("MA-11", "critical", f"Known malicious package: {where}", describe(v) + note,
+            out.append(Finding("SM-11", "critical", f"Known malicious package: {where}", describe(v) + note,
                                "Remove this server now. If it ever ran, rotate every credential it could reach.",
                                kind="malware"))
         else:
-            out.append(Finding("MA-12", severity(v), f"Known vulnerability in {where}", describe(v) + note,
+            out.append(Finding("SM-12", severity(v), f"Known vulnerability in {where}", describe(v) + note,
                                "Upgrade to a fixed version (see the advisory).", kind="vulnerability"))
     other_mal = [i for i in any_version if i.startswith("MAL-") and i not in at_version]
     if other_mal:
-        out.append(Finding("MA-11", "high", f"Other versions of {name} are known malware",
+        out.append(Finding("SM-11", "high", f"Other versions of {name} are known malware",
                            ", ".join(describe(info.get(i, {"id": i})) for i in other_mal[:2]),
                            "The package or its account was compromised before. Pin a version you have verified.",
                            kind="malware"))
@@ -129,4 +129,4 @@ async def advisories_for_spec(ecosystem: str, spec: str) -> list[Finding]:
 
 
 def blocks_launch(findings: list[Finding]) -> bool:
-    return any(f.check_id == "MA-11" and f.severity == "critical" for f in findings)
+    return any(f.check_id == "SM-11" and f.severity == "critical" for f in findings)

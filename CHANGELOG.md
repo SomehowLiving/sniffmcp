@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 — 2026-10-09
+
+### Changed
+- **Renamed the project from `mcp-audit` to SniffMCP.** The old name was already used by an
+  unrelated MCP security tool in the same category. Everything moves at once (no users yet,
+  so no compatibility aliases):
+  - package, CLI and GitHub repo: `sniffmcp`; Python module `sniffmcp`
+  - check IDs `MA-xx` → `SM-xx` (report schema 3.0.0)
+  - environment variables `MCP_AUDIT_*` → `SNIFFMCP_*`
+  - data directory `~/.mcp_audit/` → `~/.sniffmcp/`
+  - GitHub Action: `SomehowLiving/sniffmcp@v0.4.0`
+
 ## 0.3.0 — 2026-10-09
 
 ### Added

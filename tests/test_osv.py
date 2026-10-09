@@ -1,8 +1,8 @@
 """OSV integration, offline (network calls replaced)."""
 import pytest
 
-from mcp_audit import osv
-from mcp_audit.engine import scan
+from sniffmcp import osv
+from sniffmcp.engine import scan
 
 
 def test_split_spec():
@@ -38,7 +38,7 @@ def fake_osv(monkeypatch):
     monkeypatch.setattr(osv, "latest_version", latest)
     monkeypatch.setattr(osv, "query_batch", batch)
     monkeypatch.setattr(osv, "details", det)
-    monkeypatch.delenv("MCP_AUDIT_OFFLINE", raising=False)
+    monkeypatch.delenv("SNIFFMCP_OFFLINE", raising=False)
     return db
 
 
@@ -49,23 +49,23 @@ async def test_known_malware_is_reported_and_never_launched(fake_osv):
     report, manifest = await scan({"command": "npx", "args": ["-y", "evil-mcp@1.0.0"]})
     assert manifest["tools"] == [] and "not launched" in manifest["errors"][0]
     assert report.grade == "F"
-    assert any(f.check_id == "MA-11" and f.severity == "critical" for f in report.findings)
+    assert any(f.check_id == "SM-11" and f.severity == "critical" for f in report.findings)
 
 
 async def test_unpinned_checks_todays_latest(fake_osv):
     fake_osv[("some-mcp", "9.9.9")] = ["GHSA-abcd"]
     findings = await osv.advisories_for_spec("npm", "some-mcp")
     (f,) = findings
-    assert f.check_id == "MA-12" and f.severity == "high"
+    assert f.check_id == "SM-12" and f.severity == "high"
     assert "some-mcp@9.9.9" in f.title and "unpinned" in f.evidence and "CVE-2026-0001" in f.evidence
 
 
 async def test_malware_in_other_versions_is_high(fake_osv):
     fake_osv[("was-hijacked", None)] = ["MAL-2025-7"]
     findings = await osv.advisories_for_spec("npm", "was-hijacked@2.0.0")
-    assert [(f.check_id, f.severity) for f in findings] == [("MA-11", "high")]
+    assert [(f.check_id, f.severity) for f in findings] == [("SM-11", "high")]
 
 
 async def test_offline_skips_lookup(monkeypatch):
-    monkeypatch.setenv("MCP_AUDIT_OFFLINE", "1")
+    monkeypatch.setenv("SNIFFMCP_OFFLINE", "1")
     assert osv.offline()

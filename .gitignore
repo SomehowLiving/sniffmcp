@@ -6,7 +6,7 @@ __pycache__/
 build/
 dist/
 
-# Local data (crawl and watch databases live in ~/.mcp_audit by default)
+# Local data (crawl and watch databases live in ~/.sniffmcp by default)
 *.db
 *.db-wal
 *.db-shm

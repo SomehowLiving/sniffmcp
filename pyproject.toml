@@ -1,6 +1,6 @@
 [project]
-name = "mcp-audit"
-version = "0.3.0"
+name = "sniffmcp"
+version = "0.4.0"
 description = "Audit the MCP servers installed in your agent: injection, credentials, pinning, and post-install drift."
 readme = "README.md"
 license = "Apache-2.0"
@@ -24,19 +24,19 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23"]
 bench = ["yara-python>=4.5"]   # scripts/benchmark_yara.py only; never a runtime dependency
 
 [project.urls]
-Homepage = "https://github.com/SomehowLiving/mcp-audit"
-Issues = "https://github.com/SomehowLiving/mcp-audit/issues"
-Changelog = "https://github.com/SomehowLiving/mcp-audit/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/SomehowLiving/sniffmcp"
+Issues = "https://github.com/SomehowLiving/sniffmcp/issues"
+Changelog = "https://github.com/SomehowLiving/sniffmcp/blob/main/CHANGELOG.md"
 
 [project.scripts]
-mcp-audit = "mcp_audit.cli:main"
+sniffmcp = "sniffmcp.cli:main"
 
 [build-system]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["mcp_audit"]
+packages = ["sniffmcp"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

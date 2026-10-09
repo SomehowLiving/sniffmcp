@@ -1,6 +1,6 @@
 """Static checks over a server's config and manifest.
 
-Check IDs (MA-01..MA-10) are mcp-audit's own and do not follow OWASP's numbering;
+Check IDs (SM-01..SM-10) are sniffmcp's own and do not follow OWASP's numbering;
 report.OWASP_FOR_CHECK maps each to the OWASP MCP Top 10 categories it covers.
 
 Each check is a pure function: (context) -> list[Finding]. The context is a
@@ -107,25 +107,25 @@ def _short_list(names, n=6):
 # ---------- checks (IDs are frozen; see report.RULES_META and report.OWASP_FOR_CHECK) ----------
 
 def check_tool_poisoning(ctx: ManifestContext) -> list[Finding]:
-    """MA-01: server-level instructions carrying hidden directives.
+    """SM-01: server-level instructions carrying hidden directives.
     (Tool descriptions and parameter descriptions: injection.analyze_descriptions.)"""
     out = []
     for label, sev, snippet in scan_text(ctx.instructions):
-        out.append(Finding("MA-01", sev, f"Server instructions: {label}", f"…{snippet}…",
+        out.append(Finding("SM-01", sev, f"Server instructions: {label}", f"…{snippet}…",
             "Server instructions are injected into every session. Review them; never let them override user intent."))
     return out
 
 
 def check_token_mismanagement(ctx: ManifestContext) -> list[Finding]:
-    """MA-02: credentials stored in plaintext in the server entry."""
+    """SM-02: credentials stored in plaintext in the server entry."""
     out = []
     args = " ".join(str(a) for a in ctx.config.get("args") or [])
     for label, snip in find_secrets(args):
-        out.append(Finding("MA-02", "high", f"{label} passed as a command-line argument", snip,
+        out.append(Finding("SM-02", "high", f"{label} passed as a command-line argument", snip,
             "Arguments are visible to every local process (ps, /proc). Pass it via env or an OAuth flow."))
     url = str(ctx.config.get("url", ""))
     if re.search(r"(?i)[?&](api_?key|token|key|secret|access_token)=[^&]{8,}", url):
-        out.append(Finding("MA-02", "high", "Credential in remote server URL query string",
+        out.append(Finding("SM-02", "high", "Credential in remote server URL query string",
             re.sub(r"=([^&]{4})[^&]*", r"=\1…", url),
             "URLs end up in proxy and server logs. Send credentials in a header or use OAuth."))
     for k, v in (ctx.config.get("env") or {}).items():
@@ -133,13 +133,13 @@ def check_token_mismanagement(ctx: ManifestContext) -> list[Finding]:
         if ENV_REF.match(v.strip()):
             continue  # ${VAR} reference: the secret lives outside the config file
         if SENSITIVE_NAME.search(k) and len(v) >= 8 or find_secrets(v):
-            out.append(Finding("MA-02", "medium", f"Plaintext credential in config env '{k}'", redact(v),
+            out.append(Finding("SM-02", "medium", f"Plaintext credential in config env '{k}'", redact(v),
                 "Any process (or any other MCP server with file access) that can read this config can read the key. "
                 "Reference it as ${VAR} from your shell environment, or use OAuth.", ))
     for k, v in (ctx.config.get("headers") or {}).items():
         v = str(v)
         if not ENV_REF.search(v.split()[-1] if v.split() else v) and (SENSITIVE_NAME.search(k) or find_secrets(v)):
-            out.append(Finding("MA-02", "medium", f"Plaintext credential in config header '{k}'", redact(v),
+            out.append(Finding("SM-02", "medium", f"Plaintext credential in config header '{k}'", redact(v),
                 "Reference it as ${VAR} instead of storing it in the config file."))
     return out
 
@@ -154,14 +154,14 @@ def _required(tool: dict) -> set[str]:
 
 
 def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
-    """MA-03: drift vs a stored baseline, classified so benign updates don't page anyone.
+    """SM-03: drift vs a stored baseline, classified so benign updates don't page anyone.
       risky    -> new injection indicators, new destructive/exec/sensitive tools, annotation downgrades
       breaking -> tool removed, required parameter added (breaks skills/workflows)
       benign   -> wording changes, new harmless tools"""
     out = []
     if not ctx.prior_manifest:
-        return [Finding("MA-03", "info", "No baseline stored — first scan", "",
-            "Run `mcp-audit watch` to baseline this server and detect post-install changes.")]
+        return [Finding("SM-03", "info", "No baseline stored — first scan", "",
+            "Run `sniffmcp watch` to baseline this server and detect post-install changes.")]
     prior = {t.get("name"): t for t in ctx.prior_manifest.get("tools", [])}
     now = {t.get("name"): t for t in ctx.tools}
 
@@ -170,19 +170,19 @@ def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
         hits = [h for _, text in tool_texts(t) for h in scan_text(text)]
         caps = tool_capability(t) & {"destructive", "exec", "sensitive"}
         if hits:
-            out.append(Finding("MA-03", "critical", f"New tool '{name}' arrived with injection indicators",
+            out.append(Finding("SM-03", "critical", f"New tool '{name}' arrived with injection indicators",
                 "; ".join(f"{l}: …{s}…" for l, _, s in hits[:3]),
                 "This is the rug-pull pattern. Remove the server until reviewed.", tool_name=name, kind="risky"))
         elif caps:
-            out.append(Finding("MA-03", "high", f"New {'/'.join(sorted(caps))} tool '{name}' added after baseline",
+            out.append(Finding("SM-03", "high", f"New {'/'.join(sorted(caps))} tool '{name}' added after baseline",
                 (t.get("description") or "")[:160],
                 "A server gaining powerful tools after install deserves a review.", tool_name=name, kind="risky"))
         else:
-            out.append(Finding("MA-03", "info", f"New tool '{name}' added", (t.get("description") or "")[:160],
+            out.append(Finding("SM-03", "info", f"New tool '{name}' added", (t.get("description") or "")[:160],
                 "Benign-looking addition.", tool_name=name, kind="benign"))
 
     for name in sorted(prior.keys() - now.keys()):
-        out.append(Finding("MA-03", "low", f"Tool '{name}' removed", "Skills or workflows calling it will break.",
+        out.append(Finding("SM-03", "low", f"Tool '{name}' removed", "Skills or workflows calling it will break.",
             "Check the server changelog.", tool_name=name, kind="breaking"))
 
     for name in sorted(prior.keys() & now.keys()):
@@ -192,24 +192,24 @@ def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
                          for k, v in new_texts.items() if v != old_texts.get(k, ""))
         new_hits = [h for h in scan_text(added) if h[0] not in {x[0] for t in old_texts.values() for x in scan_text(t)}]
         if new_hits:
-            out.append(Finding("MA-03", "critical", f"Tool '{name}' metadata changed and gained injection indicators",
+            out.append(Finding("SM-03", "critical", f"Tool '{name}' metadata changed and gained injection indicators",
                 "; ".join(f"{l}: …{s}…" for l, _, s in new_hits[:3]),
                 "Description mutation after install is the Deadbugz pattern. Stop using this server and review.",
                 tool_name=name, kind="risky"))
         elif added.strip():
             urls = re.findall(r"https?://[^\s)\"']+", added)
             sev, why = ("medium", f"new URL(s): {_short_list(urls, 3)}") if urls else ("info", "wording change")
-            out.append(Finding("MA-03", sev, f"Tool '{name}' description changed",
+            out.append(Finding("SM-03", sev, f"Tool '{name}' description changed",
                 f"{why}; added text: {added.strip()[:160]}", "Review the diff.", tool_name=name,
                 kind="risky" if urls else "benign"))
         newly_required = _required(new) - _required(old)
         if newly_required:
-            out.append(Finding("MA-03", "low", f"Tool '{name}' has new required parameter(s)",
+            out.append(Finding("SM-03", "low", f"Tool '{name}' has new required parameter(s)",
                 _short_list(sorted(newly_required)), "Existing callers will fail until updated.",
                 tool_name=name, kind="breaking"))
         oa, na = old.get("annotations") or {}, new.get("annotations") or {}
         if oa.get("readOnlyHint") and not na.get("readOnlyHint") or (na.get("destructiveHint") and not oa.get("destructiveHint")):
-            out.append(Finding("MA-03", "medium", f"Tool '{name}' is no longer read-only / became destructive",
+            out.append(Finding("SM-03", "medium", f"Tool '{name}' is no longer read-only / became destructive",
                 f"annotations {oa} -> {na}",
                 "Clients may have auto-approved this tool as read-only. Re-check your approval settings.",
                 tool_name=name, kind="risky"))
@@ -217,7 +217,7 @@ def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
 
 
 def check_excessive_privileges(ctx: ManifestContext) -> list[Finding]:
-    """MA-04: what the server can do, plus annotations that lie about it.
+    """SM-04: what the server can do, plus annotations that lie about it.
     Clients use readOnlyHint to auto-approve calls, so a destructive tool that
     claims to be read-only is a real defect; merely having write tools is not."""
     out = []
@@ -233,37 +233,37 @@ def check_excessive_privileges(ctx: ManifestContext) -> list[Finding]:
         # destructive verb contradicts readOnlyHint, and even then it's "check", not "lie".
         first = re.split(r"[^a-z0-9]+", re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name).lower())[0]
         if ann.get("readOnlyHint") and first in {"delete", "drop", "destroy", "wipe", "truncate", "purge", "erase", "rm"}:
-            out.append(Finding("MA-04", "medium", f"Tool '{name}' claims readOnlyHint but its name starts with '{first}'",
+            out.append(Finding("SM-04", "medium", f"Tool '{name}' claims readOnlyHint but its name starts with '{first}'",
                 f"annotations: {ann}",
                 "Clients may auto-approve read-only tools. Check what it does before auto-approving.",
                 tool_name=name))
         elif "destructive" in caps and ann.get("destructiveHint") is False:
-            out.append(Finding("MA-04", "medium", f"Tool '{name}' declares destructiveHint=false",
+            out.append(Finding("SM-04", "medium", f"Tool '{name}' declares destructiveHint=false",
                 f"annotations: {ann}", "Require manual approval for this tool regardless of its hint.", tool_name=name))
     if by_cap["exec"]:
-        out.append(Finding("MA-04", "medium", "Can execute commands or code on the host",
+        out.append(Finding("SM-04", "medium", "Can execute commands or code on the host",
             _short_list(by_cap["exec"]),
             "Keep manual approval on for these tools; run the server in a container if you can."))
     if by_cap["destructive"]:
-        out.append(Finding("MA-04", "low", "Has destructive tools", _short_list(by_cap["destructive"]),
+        out.append(Finding("SM-04", "low", "Has destructive tools", _short_list(by_cap["destructive"]),
             "Keep manual approval on for these tools."))
     if by_cap["write"]:
-        out.append(Finding("MA-04", "info", f"Has {len(by_cap['write'])} write-capable tool(s)",
+        out.append(Finding("SM-04", "info", f"Has {len(by_cap['write'])} write-capable tool(s)",
             _short_list(by_cap["write"]), "Scope the server's credentials to what you need."))
     return out
 
 
 def check_sensitive_data_scope(ctx: ManifestContext) -> list[Finding]:
-    """MA-05: tools and resources aimed at secrets, env, keychains."""
+    """SM-05: tools and resources aimed at secrets, env, keychains."""
     out = []
     names = [t.get("name") for t in ctx.tools if "sensitive" in tool_capability(t)]
     if names:
-        out.append(Finding("MA-05", "medium", "Tools that read secrets, credentials or environment",
+        out.append(Finding("SM-05", "medium", "Tools that read secrets, credentials or environment",
             _short_list(names), "Make sure their output can't be forwarded by another tool (e.g. a web fetch or message send)."))
     for r in ctx.resources:
         uri = str(r.get("uri", ""))
         if SENSITIVE_PATH.search(uri):
-            out.append(Finding("MA-05", "high", "Resource URI points at a sensitive path", uri,
+            out.append(Finding("SM-05", "high", "Resource URI points at a sensitive path", uri,
                 "Do not expose credential-bearing resources to the agent; remove or gate them."))
     return out
 
@@ -272,16 +272,16 @@ LOCAL_HOSTS = re.compile(r"^http://(localhost|127\.\d+\.\d+\.\d+|\[::1\]|0\.0\.0
 
 
 def check_transport_security(ctx: ManifestContext) -> list[Finding]:
-    """MA-06: cleartext remote transport."""
+    """SM-06: cleartext remote transport."""
     out = []
     url = str(ctx.config.get("url", ""))
     if url.startswith("http://") and not LOCAL_HOSTS.match(url):
         has_creds = bool(ctx.config.get("headers"))
-        out.append(Finding("MA-06", "critical" if has_creds else "high",
+        out.append(Finding("SM-06", "critical" if has_creds else "high",
             "Remote MCP server over plain HTTP" + (" with credentials in headers" if has_creds else ""), url,
             "Tool schemas, results and any credentials travel in cleartext. Use https."))
     elif url and ctx.transport != "stdio" and not ctx.config.get("headers"):
-        out.append(Finding("MA-06", "info", "Remote server with no client credentials configured", url,
+        out.append(Finding("SM-06", "info", "Remote server with no client credentials configured", url,
             "Fine for public read-only servers; if the client does OAuth, this is expected."))
     return out
 
@@ -339,54 +339,54 @@ def launch_spec(config: dict) -> tuple[str, str] | None:
 
 
 def check_unpinned_dependencies(ctx: ManifestContext) -> list[Finding]:
-    """MA-07: server fetched from a registry at launch without an exact version."""
+    """SM-07: server fetched from a registry at launch without an exact version."""
     spec = launch_spec(ctx.config)
     if not spec:
         return []
     eco, pkg = spec
     fix = "Pin an exact version so a malicious or broken publish can't reach you silently."
     if eco == "npm" and not NPM_PINNED.match(pkg):
-        return [Finding("MA-07", "medium", "npm package launched without an exact version", pkg,
+        return [Finding("SM-07", "medium", "npm package launched without an exact version", pkg,
                         fix + " e.g. npx -y pkg@1.2.3")]
     if eco == "pypi" and not PY_PINNED.search(pkg) and not pkg.startswith(("/", ".")):
-        return [Finding("MA-07", "medium", "Python package launched without an exact version", pkg,
+        return [Finding("SM-07", "medium", "Python package launched without an exact version", pkg,
                         fix + " e.g. uvx pkg==1.2.3")]
     if eco == "docker":
         if "@sha256:" in pkg:
             return []
         tag = pkg.rsplit("/", 1)[-1].partition(":")[2]
         if not tag or tag == "latest":
-            return [Finding("MA-07", "medium", "Container image without a tag or digest", pkg,
+            return [Finding("SM-07", "medium", "Container image without a tag or digest", pkg,
                             fix + " Use image@sha256:<digest>.")]
-        return [Finding("MA-07", "info", "Container image pinned by tag (tags are mutable)", pkg,
+        return [Finding("SM-07", "info", "Container image pinned by tag (tags are mutable)", pkg,
                         "Pin by digest for full reproducibility.")]
     return []
 
 
 def check_attack_surface(ctx: ManifestContext) -> list[Finding]:
-    """MA-08: very large tool sets, duplicate names."""
+    """SM-08: very large tool sets, duplicate names."""
     out = []
     n = len(ctx.tools)
     if n > 40:
         chars = sum(len(str(t.get("description", ""))) + len(str(t.get("inputSchema", ""))) for t in ctx.tools)
-        out.append(Finding("MA-08", "low", f"Large tool surface ({n} tools)",
+        out.append(Finding("SM-08", "low", f"Large tool surface ({n} tools)",
             f"~{chars // 4:,} tokens of tool definitions",
             "Disable the tools you don't use; each one is context cost and another injection surface."))
     names = [t.get("name", "") for t in ctx.tools]
     dups = sorted({x for x in names if names.count(x) > 1})
     if dups:
-        out.append(Finding("MA-08", "high", "Duplicate tool names", ", ".join(dups),
+        out.append(Finding("SM-08", "high", "Duplicate tool names", ", ".join(dups),
             "Duplicate names can shadow a legitimate tool with a malicious twin."))
     return out
 
 
 def check_resource_exposure(ctx: ManifestContext) -> list[Finding]:
-    """MA-09: prompts carrying hidden directives (prompts are instructions surfaced to the model)."""
+    """SM-09: prompts carrying hidden directives (prompts are instructions surfaced to the model)."""
     out = []
     for p in ctx.prompts:
         texts = [p.get("description") or ""] + [a.get("description") or "" for a in p.get("arguments") or []]
         for label, sev, snippet in (h for t in texts for h in scan_text(t)):
-            out.append(Finding("MA-09", sev, f"Prompt '{p.get('name')}': {label}", f"…{snippet}…",
+            out.append(Finding("SM-09", sev, f"Prompt '{p.get('name')}': {label}", f"…{snippet}…",
                 "Prompts are executable instructions surfaced to the model; treat like tool descriptions."))
     return out
 
@@ -396,15 +396,15 @@ TLS_OFF = {"NODE_TLS_REJECT_UNAUTHORIZED": "0", "PYTHONHTTPSVERIFY": "0"}
 
 
 def check_config_hygiene(ctx: ManifestContext) -> list[Finding]:
-    """MA-10: dangerous launch configuration."""
+    """SM-10: dangerous launch configuration."""
     out = []
     cmdline = " ".join([str(ctx.config.get("command") or "")] + [str(a) for a in ctx.config.get("args") or []])
     if PIPE_TO_SHELL.search(cmdline):
-        out.append(Finding("MA-10", "high", "Launch command downloads and executes a script", cmdline[:160],
+        out.append(Finding("SM-10", "high", "Launch command downloads and executes a script", cmdline[:160],
             "Every launch runs whatever that URL serves today. Install a pinned package instead."))
     for k, bad in TLS_OFF.items():
         if str((ctx.config.get("env") or {}).get(k, "")) == bad:
-            out.append(Finding("MA-10", "medium", f"TLS verification disabled ({k}={bad})", k,
+            out.append(Finding("SM-10", "medium", f"TLS verification disabled ({k}={bad})", k,
                 "Remove it; the server's outbound traffic can be intercepted."))
     return out
 

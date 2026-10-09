@@ -3,7 +3,7 @@ the stored baseline, classifies each change (risky / breaking / benign), and
 pushes risky changes to a webhook (Slack-compatible JSON).
 
 Alerts fire once per manifest change, not on every poll. The baseline only
-moves when the user accepts the change (`mcp-audit watch NAME --accept`).
+moves when the user accepts the change (`sniffmcp watch NAME --accept`).
 
 Known limit: a server that only changes after N *tool calls* inside a live
 session (Deadbugz) shows its clean face to every fresh connection we open.
@@ -24,7 +24,7 @@ async def check_watch(store: Store, watch: dict) -> list[Finding]:
     try:
         manifest = await fetch_manifest(config)
     except ConnectError as e:
-        f = Finding("MA-03", "medium", f"watch '{watch['name']}' unreachable", str(e)[:300])
+        f = Finding("SM-03", "medium", f"watch '{watch['name']}' unreachable", str(e)[:300])
         store.log_alert(watch["id"], f.severity, f.title + " | " + f.evidence)
         store.record_check(watch["id"])
         return [f]
@@ -66,7 +66,7 @@ async def accept(store: Store, name: str) -> bool:
 def _push(webhook: str | None, name: str, finding: Finding) -> None:
     if not webhook:
         return
-    text = f"[mcp-audit:{finding.severity.upper()}] {name}: {finding.title}\n{finding.evidence}"
+    text = f"[sniffmcp:{finding.severity.upper()}] {name}: {finding.title}\n{finding.evidence}"
     req = urllib.request.Request(webhook, data=json.dumps({"text": text}).encode(),
                                  headers={"Content-Type": "application/json"})
     try:

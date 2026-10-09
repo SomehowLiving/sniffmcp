@@ -2,9 +2,9 @@
 import json, os, sys
 from pathlib import Path
 
-from mcp_audit import watcher
-from mcp_audit.engine import scan
-from mcp_audit.state import Store
+from sniffmcp import watcher
+from sniffmcp.engine import scan
+from sniffmcp.state import Store
 
 FIXTURE = str(Path(__file__).parent / "fixtures" / "fixture_server.py")
 
@@ -46,7 +46,7 @@ async def test_watch_detects_rug_pull(tmp_path):
 
 
 async def test_unreachable_server_is_a_connect_error():
-    from mcp_audit.client import ConnectError
+    from sniffmcp.client import ConnectError
     try:
         await scan({"command": "definitely-not-a-real-binary-xyz", "timeout": 10})
     except ConnectError as e:

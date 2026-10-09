@@ -104,7 +104,7 @@ def _transport_for(config: dict, errlog):
     return streamable_http_client(url, http_client=create_mcp_http_client(headers=headers or None))
 
 
-async def fetch_manifest(config: dict, client_name: str = "mcp-audit") -> dict:
+async def fetch_manifest(config: dict, client_name: str = "sniffmcp") -> dict:
     """Connect, negotiate, and return tools/resources/prompts/server_info/instructions."""
     kind = transport_of(config)
     timeout = float(config.get("timeout") or
@@ -136,7 +136,7 @@ async def _http_status_hint(config: dict) -> str | None:
                **{k: _expand(str(v)) for k, v in (config.get("headers") or {}).items()}}
     body = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": "2025-06-18", "capabilities": {},
-                       "clientInfo": {"name": "mcp-audit", "version": "0"}}}
+                       "clientInfo": {"name": "sniffmcp", "version": "0"}}}
     try:
         async with httpx2.AsyncClient(timeout=10) as http:
             r = await http.post(_expand(config["url"]), json=body, headers=headers)

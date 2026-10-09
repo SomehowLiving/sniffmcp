@@ -1,8 +1,8 @@
 """Crawler logic, offline: SSRF guard, registry ingestion, release signals, change recording."""
 import json
 
-from mcp_audit import crawler
-from mcp_audit.crawldb import CrawlDB
+from sniffmcp import crawler
+from sniffmcp.crawldb import CrawlDB
 
 
 async def test_ssrf_guard_rejects_private_addresses():

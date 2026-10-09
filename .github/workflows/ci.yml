@@ -16,7 +16,7 @@ jobs:
       matrix:
         python: ["3.11", "3.12", "3.13"]
     env:
-      MCP_AUDIT_OFFLINE: "1"   # tests never depend on OSV or other network services
+      SNIFFMCP_OFFLINE: "1"   # tests never depend on OSV or other network services
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -63,7 +63,7 @@ jobs:
           python3 - <<'PY'
           import json
           run = json.load(open("high.sarif"))["runs"][0]
-          assert any(r["ruleId"] == "MA-10" for r in run["results"]), run["results"]
+          assert any(r["ruleId"] == "SM-10" for r in run["results"]), run["results"]
           loc = run["results"][0]["locations"][0]["physicalLocation"]
           assert loc["artifactLocation"]["uri"] == "tests/fixtures/action/.mcp.json", loc
           print("action OK:", len(run["results"]), "results")

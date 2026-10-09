@@ -1,4 +1,4 @@
-"""mcp-audit CLI. Same engine as the MCP server.
+"""sniffmcp CLI. Same engine as the MCP server.
 
 Exit contract (stable):
   0  scan completed, no active finding at/above --fail-on
@@ -7,14 +7,14 @@ Exit contract (stable):
   3  analysis incomplete (server unreachable / timed out)
 
 Usage:
-  mcp-audit scan '{"command":"npx","args":["-y","pkg@1.2.3"]}'
-  mcp-audit scan https://mcp.example.com/mcp
-  mcp-audit scan cfg.json --format sarif --output results.sarif
-  mcp-audit fleet                      # every server in your Claude/Cursor/Windsurf configs
-  mcp-audit watch cfg.json --name myserver --webhook https://hooks.slack.com/...
-  mcp-audit watch --name myserver --accept     # accept the current manifest as the new baseline
-  mcp-audit watch --run                        # check all watches on their intervals, forever
-  mcp-audit crawl run --output crawl-report.md # daily: registry sync, probe public servers, package history
+  sniffmcp scan '{"command":"npx","args":["-y","pkg@1.2.3"]}'
+  sniffmcp scan https://mcp.example.com/mcp
+  sniffmcp scan cfg.json --format sarif --output results.sarif
+  sniffmcp fleet                      # every server in your Claude/Cursor/Windsurf configs
+  sniffmcp watch cfg.json --name myserver --webhook https://hooks.slack.com/...
+  sniffmcp watch --name myserver --accept     # accept the current manifest as the new baseline
+  sniffmcp watch --run                        # check all watches on their intervals, forever
+  sniffmcp crawl run --output crawl-report.md # daily: registry sync, probe public servers, package history
 """
 from __future__ import annotations
 import argparse, asyncio, json, os, sys
@@ -158,7 +158,7 @@ async def cmd_crawl(args) -> int:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="mcp-audit")
+    ap = argparse.ArgumentParser(prog="sniffmcp")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("scan", help="scan one MCP server")
@@ -191,7 +191,7 @@ def main(argv=None) -> int:
     cr = sub.add_parser("crawl", help="crawl the official MCP registry and snapshot public servers over time")
     cr.add_argument("action", choices=["sync", "probe", "packages", "advisories", "report", "run", "rescore"],
                     help="run = sync + probe + packages + advisories + report (what a daily cron should call)")
-    cr.add_argument("--db", default=None, help="crawl database (default ~/.mcp_audit/crawl.db)")
+    cr.add_argument("--db", default=None, help="crawl database (default ~/.sniffmcp/crawl.db)")
     cr.add_argument("--limit", type=int, default=None, help="probe/check at most N items")
     cr.add_argument("--concurrency", type=int, default=8)
     cr.add_argument("--min-age", type=float, default=20, help="hours before an item is re-probed")
@@ -205,7 +205,7 @@ def main(argv=None) -> int:
 
     args = ap.parse_args(argv)
     if getattr(args, "offline", False):
-        os.environ["MCP_AUDIT_OFFLINE"] = "1"
+        os.environ["SNIFFMCP_OFFLINE"] = "1"
     if args.cmd == "fleet":
         try:
             fleet = asyncio.run(scan_fleet(args.paths or None, args.fail_on, launch=not args.no_launch))

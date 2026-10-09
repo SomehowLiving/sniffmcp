@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping. mcp-audit is a security tool, so the bar for detection changes is
+Thanks for helping. sniffmcp is a security tool, so the bar for detection changes is
 **evidence**, not intuition.
 
 ## Setup
@@ -23,7 +23,7 @@ Every rule change must pass all of these:
 2. **Known attacks are still caught.** `test_attacks_still_caught_after_precision_fixes` and
    the Invariant-style poisoning test must pass.
 3. **Popular legitimate servers still grade A/B** (`test_benign_server_grades_a_or_b`).
-4. **Check it against the crawl if you have one.** Run `mcp-audit crawl rescore` and check
+4. **Check it against the crawl if you have one.** Run `sniffmcp crawl rescore` and check
    every new high/critical hit by hand. Our first crawl pass flagged ~80 servers; nearly
    all were false positives. That's normal, and it's why this step exists.
 5. **Every false positive you find becomes a test.** Add the text (anonymised to `example`
@@ -34,7 +34,7 @@ low/info, not punished. Reserve high/critical for evidence that something is wro
 
 ## Check IDs
 
-`MA-xx` IDs are frozen contracts once released: never renumber or reuse them. New checks
+`SM-xx` IDs are frozen contracts once released: never renumber or reuse them. New checks
 get the next free number and an entry in `report.RULES_META` and `report.OWASP_FOR_CHECK`
 (a test enforces the OWASP mapping).
 
@@ -57,7 +57,7 @@ Small, focused PRs with tests. Describe what evidence motivated a detection chan
 
 ## Releasing (maintainers)
 
-1. Bump `version` in `pyproject.toml` and `mcp_audit/__init__.py`, add a `CHANGELOG.md` entry.
+1. Bump `version` in `pyproject.toml` and `sniffmcp/__init__.py`, add a `CHANGELOG.md` entry.
 2. Commit, then create a GitHub release with tag `v<version>`.
 3. `.github/workflows/release.yml` tests, builds, smoke-tests the wheel and publishes to
    PyPI through trusted publishing (no stored tokens; the upload carries provenance).

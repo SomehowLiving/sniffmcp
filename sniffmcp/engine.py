@@ -24,7 +24,7 @@ def report_from_manifest(config: dict, manifest: dict, prior: dict | None = None
                           prior_manifest=prior)
     findings = run_all_checks(ctx) + analyze_descriptions(tools, llm_hook=llm_hook) + list(extra or [])
     for err in manifest.get("errors") or []:
-        findings.append(Finding("MA-10", "info", "Partial manifest", err,
+        findings.append(Finding("SM-10", "info", "Partial manifest", err,
                                 "Some listings failed; the scan may be incomplete."))
     score, grade = score_findings(findings)
     return ScanReport(target=ctx.target, transport=transport, score=score, grade=grade,
@@ -49,7 +49,7 @@ async def scan(config: dict, prior: dict | None = None, launch: bool = True) -> 
             return report_from_manifest(config, manifest, prior, extra=pre), manifest
     if not launch and transport_of(config) == "stdio":
         manifest = {"tools": []}
-        pre.append(Finding("MA-10", "info", "Not launched (--no-launch): config and package checks only", "",
+        pre.append(Finding("SM-10", "info", "Not launched (--no-launch): config and package checks only", "",
                            "Run without --no-launch on a trusted machine to inspect the server's tools."))
         return report_from_manifest(config, manifest, prior, extra=pre), manifest
     manifest = await fetch_manifest(config)

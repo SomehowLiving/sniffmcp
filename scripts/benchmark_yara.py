@@ -1,4 +1,4 @@
-"""Head-to-head: Cisco mcp-scanner's YARA rules vs mcp-audit's text rules, on
+"""Head-to-head: Cisco mcp-scanner's YARA rules vs sniffmcp's text rules, on
 (1) our hand-labelled corpus (known attacks / known false positives from the crawl) and
 (2) every latest snapshot in crawl.db.
 
@@ -15,14 +15,14 @@ import yara
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
-from mcp_audit.crawldb import CrawlDB                     # noqa: E402
-from mcp_audit.injection import scan_text, tool_texts      # noqa: E402
+from sniffmcp.crawldb import CrawlDB                     # noqa: E402
+from sniffmcp.injection import scan_text, tool_texts      # noqa: E402
 
 CISCO_COMMIT = "5d147dc7e3635606e41104112fa297b45444b05c"
 CISCO_RULES = ["code_execution", "coercive_injection", "command_injection", "credential_harvesting",
                "data_exfiltration", "prompt_injection", "script_injection", "sql_injection",
                "system_manipulation", "tool_poisoning"]
-CACHE = Path(os.path.expanduser("~/.cache/mcp-audit/cisco-yara")) / CISCO_COMMIT[:12]
+CACHE = Path(os.path.expanduser("~/.cache/sniffmcp/cisco-yara")) / CISCO_COMMIT[:12]
 
 
 def fetch_rules() -> Path:
@@ -89,8 +89,8 @@ def main():
     args = ap.parse_args()
     rules = yara.compile(filepaths={p.stem: str(p) for p in sorted(fetch_rules().glob("*.yara"))})
 
-    L = ["# Benchmark: Cisco mcp-scanner YARA rules vs mcp-audit text rules", "",
-         f"Cisco rules: commit `{CISCO_COMMIT[:12]}` (Apache-2.0). mcp-audit: high/critical text rules only.", ""]
+    L = ["# Benchmark: Cisco mcp-scanner YARA rules vs sniffmcp text rules", "",
+         f"Cisco rules: commit `{CISCO_COMMIT[:12]}` (Apache-2.0). sniffmcp: high/critical text rules only.", ""]
 
     attacks, benign = corpus()
     def rate(fn, texts):
@@ -100,7 +100,7 @@ def main():
           "|---|---|---|",
           f"| Cisco YARA | {rate(lambda t: cisco_hits(rules, t), attacks)}/{len(attacks)} | "
           f"{rate(lambda t: cisco_hits(rules, t), benign)}/{len(benign)} |",
-          f"| mcp-audit | {rate(ours, attacks)}/{len(attacks)} | {rate(ours, benign)}/{len(benign)} |", ""]
+          f"| sniffmcp | {rate(ours, attacks)}/{len(attacks)} | {rate(ours, benign)}/{len(benign)} |", ""]
     missed_c = [t for t in attacks if not cisco_hits(rules, t)]
     fp_c = [(t, cisco_hits(rules, t)) for t in benign if cisco_hits(rules, t)]
     if missed_c:
@@ -125,9 +125,9 @@ def main():
     L += ["## 2. Real servers (latest snapshot of every reachable registry endpoint)", "",
           f"- servers: {n}",
           f"- flagged by Cisco YARA: **{len(cisco_servers)}** ({100 * len(cisco_servers) / max(n, 1):.1f}%)",
-          f"- flagged by mcp-audit (high/critical): **{len(ours_servers)}** ({100 * len(ours_servers) / max(n, 1):.1f}%)",
+          f"- flagged by sniffmcp (high/critical): **{len(ours_servers)}** ({100 * len(ours_servers) / max(n, 1):.1f}%)",
           f"- both: {len(cisco_servers & ours_servers)} · only Cisco: {len(cisco_servers - ours_servers)} · "
-          f"only mcp-audit: {len(ours_servers - cisco_servers)}", "",
+          f"only sniffmcp: {len(ours_servers - cisco_servers)}", "",
           "| Cisco rule | servers hit |", "|---|---|"]
     L += [f"| {r} | {len(s)} |" for r, s in sorted(by_rule_servers.items(), key=lambda kv: -len(kv[1]))]
     L += ["", "### Samples per Cisco rule (check by hand)", ""]

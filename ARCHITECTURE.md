@@ -1,23 +1,23 @@
-# mcp-audit architecture
+# sniffmcp architecture
 
 *As of 2026-10-09. See [README.md](README.md) for what it does and how to use it.*
 
 ## 1. The big picture
 
-mcp-audit has three entry points and one shared engine. Everything that grades a server goes through the same pipeline, so the CLI, the watcher, the MCP server mode and the crawler always agree.
+sniffmcp has three entry points and one shared engine. Everything that grades a server goes through the same pipeline, so the CLI, the watcher, the MCP server mode and the crawler always agree.
 
 ```mermaid
 flowchart LR
     subgraph Entry["Entry points"]
         CLI["CLI<br/>scan · fleet · watch · crawl"]
-        SRV["MCP server mode<br/>agent calls mcp-audit"]
+        SRV["MCP server mode<br/>agent calls sniffmcp"]
         CRON["Daily cron<br/>crawl run"]
     end
 
     subgraph Core["Shared engine"]
         CLIENT["client.py<br/>connect + list"]
         ENGINE["engine.py<br/>one scan pipeline"]
-        CHECKS["checks.py<br/>MA-01..10, drift"]
+        CHECKS["checks.py<br/>SM-01..10, drift"]
         INJ["injection.py<br/>text rules"]
         SCORE["scoring.py<br/>score + grade caps"]
         REPORT["report.py<br/>JSON · SARIF · OWASP map"]
@@ -119,7 +119,7 @@ sequenceDiagram
     participant DB as state.db
     participant H as Webhook (Slack)
 
-    U->>W: mcp-audit watch cfg.json --name x
+    U->>W: sniffmcp watch cfg.json --name x
     W->>S: connect + list
     W->>DB: store baseline hash + full tools
     loop every interval_seconds
@@ -164,7 +164,7 @@ flowchart TD
     B -->|yes| OK2["scan remote"]
     B -->|no| C{"JSON with url?"}
     C -->|yes| OK2
-    C -->|"JSON with command"| D{"MCP_AUDIT_ALLOW_COMMANDS=1?"}
+    C -->|"JSON with command"| D{"SNIFFMCP_ALLOW_COMMANDS=1?"}
     D -->|yes| OK3["spawn"]
     D -->|no| NO["refuse"]
 ```
@@ -265,18 +265,18 @@ erDiagram
 
 ## 7. Public standards and data: what we use, and what we don't yet
 
-Which public standards, threat research and data feeds mcp-audit builds on, and which it doesn't yet.
+Which public standards, threat research and data feeds sniffmcp builds on, and which it doesn't yet.
 
 | Source | Used? | How |
 |---|---|---|
-| **OWASP MCP Top 10** (beta, 2025) | ✅ as of today | Every finding is tagged with OWASP IDs in JSON and SARIF. **Caveat:** our own IDs (`MA-01`…) don't follow OWASP numbering; see the map below |
+| **OWASP MCP Top 10** (beta, 2025) | ✅ as of today | Every finding is tagged with OWASP IDs in JSON and SARIF. **Caveat:** our own IDs (`SM-01`…) don't follow OWASP numbering; see the map below |
 | **Invariant Labs tool-poisoning research** (the `<IMPORTANT>` / read `~/.cursor/mcp.json` proof of concept) | ✅ | It's a regression test; our rules must grade it F |
 | **Deadbugz write-ups** (Pillar Security, CSA, 2026) | ✅ | Shaped the drift checks and the fixture's rug-pull mode. It's also why we document that polling can't catch session-gated payloads |
 | **Official MCP registry** | ✅ | Source of the crawl |
 | **npm provenance / trusted publishing, PyPI metadata** | ✅ | Package release signals |
 | **MCP spec tool annotations** (`readOnlyHint`, `destructiveHint`) | ✅ | Annotation-vs-name contradictions and annotation drift |
-| **OSV.dev malicious-package advisories** (`MAL-…`, OpenSSF malicious-packages feed) | ✅ | `MA-11`. The scanner checks the package **before spawning it** and refuses to launch known malware. The crawler checks every registry package (`crawl advisories`) |
-| **CVE / GHSA / PYSEC advisories** | ✅ | `MA-12`, via the same OSV queries. Pinned versions are checked exactly; unpinned ones at today's latest (what `npx`/`uvx` would run) |
+| **OSV.dev malicious-package advisories** (`MAL-…`, OpenSSF malicious-packages feed) | ✅ | `SM-11`. The scanner checks the package **before spawning it** and refuses to launch known malware. The crawler checks every registry package (`crawl advisories`) |
+| **CVE / GHSA / PYSEC advisories** | ✅ | `SM-12`, via the same OSV queries. Pinned versions are checked exactly; unpinned ones at today's latest (what `npx`/`uvx` would run) |
 | **Cisco mcp-scanner YARA rules** (Apache-2.0) | ✅ as a **benchmark**, not a dependency | `scripts/benchmark_yara.py` fetches them at a pinned commit and runs them head-to-head with ours on the labelled corpus and all 10k crawled servers. Results: `reports/benchmark-cisco-yara-*.md`. One lead they surfaced that we missed became a new rule ("installs code into agent config") |
 | **LLM-as-judge** | ❌ (hook exists: `analyze_descriptions(llm_hook=…)`) | Cisco and Snyk use one. Optional second opinion for ambiguous text |
 
@@ -284,20 +284,20 @@ Which public standards, threat research and data feeds mcp-audit builds on, and 
 
 | OWASP | Category | Our checks | Coverage |
 |---|---|---|---|
-| MCP01 | Token Mismanagement & Secret Exposure | MA-02, MA-05 | 🟢 config secrets, redaction |
-| MCP02 | Privilege Escalation via Scope Creep | MA-04 | 🟡 capabilities only; we can't see token scopes |
-| MCP03 | Tool Poisoning | INJ-HEUR, MA-01, MA-03, MA-08, MA-09, FLEET-01 | 🟢 our strongest area |
-| MCP04 | Supply Chain & Dependency Tampering | MA-07, MA-10, **MA-11 (malware), MA-12 (CVEs)**, crawler package signals | 🟢 pinning, provenance, OSV malware + vulnerabilities |
-| MCP05 | Command Injection & Execution | MA-04 (flags exec tools) | 🔴 we can't see handler code |
-| MCP06 | Intent Flow Subversion | INJ-HEUR, MA-01 | 🟡 text only |
-| MCP07 | Insufficient AuthN/AuthZ | MA-06, crawler auth stats | 🟡 transport + auth presence |
+| MCP01 | Token Mismanagement & Secret Exposure | SM-02, SM-05 | 🟢 config secrets, redaction |
+| MCP02 | Privilege Escalation via Scope Creep | SM-04 | 🟡 capabilities only; we can't see token scopes |
+| MCP03 | Tool Poisoning | INJ-HEUR, SM-01, SM-03, SM-08, SM-09, FLEET-01 | 🟢 our strongest area |
+| MCP04 | Supply Chain & Dependency Tampering | SM-07, SM-10, **SM-11 (malware), SM-12 (CVEs)**, crawler package signals | 🟢 pinning, provenance, OSV malware + vulnerabilities |
+| MCP05 | Command Injection & Execution | SM-04 (flags exec tools) | 🔴 we can't see handler code |
+| MCP06 | Intent Flow Subversion | INJ-HEUR, SM-01 | 🟡 text only |
+| MCP07 | Insufficient AuthN/AuthZ | SM-06, crawler auth stats | 🟡 transport + auth presence |
 | MCP08 | Lack of Audit & Telemetry | — | 🔴 out of scope for a scanner |
 | MCP09 | Shadow MCP Servers | `fleet` discovery (inventory) | 🟡 lists what's installed; no org-wide view |
-| MCP10 | Context Injection & Over-Sharing | MA-05 | 🟡 |
+| MCP10 | Context Injection & Over-Sharing | SM-05 | 🟡 |
 
 ## 8. How our approach compares
 
-| | **mcp-audit** | **Snyk Agent Scan** (ex-Invariant mcp-scan) | **Cisco mcp-scanner** (open source) | **MCP-Sentinel** | **MCP-Shield** (indie) |
+| | **sniffmcp** | **Snyk Agent Scan** (ex-Invariant mcp-scan) | **Cisco mcp-scanner** (open source) | **MCP-Sentinel** | **MCP-Shield** (indie) |
 |---|---|---|---|---|---|
 | Scans | Installed servers, live | Installed servers, live | Servers / tools, live | Server **source code** | Installed servers |
 | Detection | Regex rules tuned on 10k real servers | Hosted analysis + rules | YARA + LLM judge + Cisco AI Defense | AST, Semgrep, LLM, Docker probes | Rules |
@@ -336,8 +336,8 @@ Which public standards, threat research and data feeds mcp-audit builds on, and 
 
 ## 10. Next technical steps
 
-1. ~~OSV integration~~ ✅ done (`MA-11`, `MA-12`, pre-spawn malware block, `crawl advisories`).
-2. ~~Rename our IDs~~ ✅ done (`MCP-xx` → `MA-xx`, report schema 2.0.0).
+1. ~~OSV integration~~ ✅ done (`SM-11`, `SM-12`, pre-spawn malware block, `crawl advisories`).
+2. ~~Rename our IDs~~ ✅ done (`MCP-xx` → `SM-xx`, report schema 2.0.0).
 3. **Publish the corpus**: the real-world false positives plus known attacks as a benchmark set.
 4. **OAuth** in `client.py` (the SDK has an OAuth client provider), so the 36% of auth-gated servers become scannable.
 5. **Optional LLM judge** behind the existing hook, only for ambiguous hits.

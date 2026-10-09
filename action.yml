@@ -1,5 +1,5 @@
-name: MCP Audit Scan
-description: Audit the MCP servers in your repo's MCP config for hidden instructions, known malware, leaked secrets and unpinned packages.
+name: SniffMCP
+description: Sniff out risky MCP servers in your repo's MCP config - hidden instructions, known malware, leaked secrets, unpinned packages.
 author: SomehowLiving
 branding:
   icon: shield
@@ -26,7 +26,7 @@ inputs:
     default: "false"
   sarif-file:
     description: Where to write the SARIF report
-    default: mcp-audit.sarif
+    default: sniffmcp.sarif
   upload-sarif:
     description: Upload the SARIF report to GitHub code scanning (needs security-events write permission)
     default: "true"
@@ -36,7 +36,7 @@ outputs:
     description: Path of the SARIF report
     value: ${{ steps.scan.outputs.sarif-file }}
   exit-code:
-    description: "mcp-audit exit code: 0 clean, 1 findings at/above fail-on, 2 bad config, 3 some servers not analysed"
+    description: "sniffmcp exit code: 0 clean, 1 findings at/above fail-on, 2 bad config, 3 some servers not analysed"
     value: ${{ steps.scan.outputs.exit-code }}
 
 runs:
@@ -44,11 +44,11 @@ runs:
   steps:
     - uses: astral-sh/setup-uv@v5
 
-    - name: Install mcp-audit
+    - name: Install sniffmcp
       shell: bash
       run: |
-        uv venv --quiet --clear "$RUNNER_TEMP/mcp-audit-venv" --python 3.12   # --clear: the action may run several times in one job
-        uv pip install --quiet --python "$RUNNER_TEMP/mcp-audit-venv/bin/python" "$GITHUB_ACTION_PATH"
+        uv venv --quiet --clear "$RUNNER_TEMP/sniffmcp-venv" --python 3.12   # --clear: the action may run several times in one job
+        uv pip install --quiet --python "$RUNNER_TEMP/sniffmcp-venv/bin/python" "$GITHUB_ACTION_PATH"
 
     - name: Audit MCP config
       id: scan
@@ -61,18 +61,18 @@ runs:
         IN_SARIF: ${{ inputs.sarif-file }}
       run: |
         set +e
-        PY="$RUNNER_TEMP/mcp-audit-venv/bin/python"
-        args=(fleet --format json --output "$RUNNER_TEMP/mcp-audit-fleet.json" --fail-on "$IN_FAIL_ON")
+        PY="$RUNNER_TEMP/sniffmcp-venv/bin/python"
+        args=(fleet --format json --output "$RUNNER_TEMP/sniffmcp-fleet.json" --fail-on "$IN_FAIL_ON")
         [ "$IN_LAUNCH" = "true" ] || args+=(--no-launch)
         [ "$IN_OFFLINE" = "true" ] && args+=(--offline)
         read -ra configs <<< "$IN_CONFIG"
-        "$RUNNER_TEMP/mcp-audit-venv/bin/mcp-audit" "${args[@]}" "${configs[@]}"
+        "$RUNNER_TEMP/sniffmcp-venv/bin/sniffmcp" "${args[@]}" "${configs[@]}"
         code=$?
-        if [ -f "$RUNNER_TEMP/mcp-audit-fleet.json" ]; then
-          "$PY" - "$RUNNER_TEMP/mcp-audit-fleet.json" "$IN_SARIF" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+        if [ -f "$RUNNER_TEMP/sniffmcp-fleet.json" ]; then
+          "$PY" - "$RUNNER_TEMP/sniffmcp-fleet.json" "$IN_SARIF" <<'PY' >> "$GITHUB_STEP_SUMMARY"
         import json, sys
-        from mcp_audit.fleet import fleet_markdown
-        from mcp_audit.report import fleet_to_sarif
+        from sniffmcp.fleet import fleet_markdown
+        from sniffmcp.report import fleet_to_sarif
         fleet = json.load(open(sys.argv[1]))
         open(sys.argv[2], "w").write(json.dumps(fleet_to_sarif(fleet), indent=2))
         print(fleet_markdown(fleet))
@@ -86,7 +86,7 @@ runs:
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: ${{ inputs.sarif-file }}
-        category: mcp-audit
+        category: sniffmcp
 
     - name: Apply result
       shell: bash
@@ -95,9 +95,9 @@ runs:
         IN_FAIL_UNREACHABLE: ${{ inputs.fail-on-unreachable }}
       run: |
         case "$CODE" in
-          0) echo "mcp-audit: clean" ;;
-          1) echo "::error::mcp-audit found issues at or above the fail-on threshold (see the job summary / code scanning)"; exit 1 ;;
+          0) echo "sniffmcp: clean" ;;
+          1) echo "::error::sniffmcp found issues at or above the fail-on threshold (see the job summary / code scanning)"; exit 1 ;;
           3) if [ "$IN_FAIL_UNREACHABLE" = "true" ]; then echo "::error::some MCP servers could not be analysed"; exit 1;
              else echo "::warning::some MCP servers could not be analysed (e.g. OAuth-protected remotes)"; fi ;;
-          *) echo "::error::mcp-audit failed to run (exit $CODE)"; exit 1 ;;
+          *) echo "::error::sniffmcp failed to run (exit $CODE)"; exit 1 ;;
         esac

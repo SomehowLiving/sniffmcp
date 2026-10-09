@@ -163,7 +163,7 @@ def fleet_console(fleet: dict) -> None:
         print(f"  [warning] {w}")
 
 
-def fleet_markdown(fleet: dict, title: str = "mcp-audit") -> str:
+def fleet_markdown(fleet: dict, title: str = "sniffmcp") -> str:
     """Compact Markdown for a CI job summary."""
     s = fleet["summary"]
     L = [f"### {title}", "",

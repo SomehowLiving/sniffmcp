@@ -3,7 +3,7 @@ snapshots, manifest changes, and npm/PyPI release history.
 
 Snapshots are stored only when a manifest changes; every probe is logged
 separately so availability and auth stats stay honest.
-Default path ~/.mcp_audit/crawl.db (override with MCP_AUDIT_CRAWL_DB or --db).
+Default path ~/.sniffmcp/crawl.db (override with SNIFFMCP_CRAWL_DB or --db).
 """
 from __future__ import annotations
 import json, os, sqlite3, time
@@ -47,8 +47,8 @@ CREATE INDEX IF NOT EXISTS snaps_ep ON snapshots(endpoint_id, id);
 
 
 def default_path() -> str:
-    return os.environ.get("MCP_AUDIT_CRAWL_DB") or os.path.join(
-        os.path.expanduser("~"), ".mcp_audit", "crawl.db")
+    return os.environ.get("SNIFFMCP_CRAWL_DB") or os.path.join(
+        os.path.expanduser("~"), ".sniffmcp", "crawl.db")
 
 
 class CrawlDB:

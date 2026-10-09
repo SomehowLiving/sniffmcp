@@ -1,6 +1,6 @@
 # Security policy
 
-## Reporting a vulnerability in mcp-audit
+## Reporting a vulnerability in sniffmcp
 
 Please **don't open a public issue**. Use GitHub's
 [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)
@@ -9,13 +9,13 @@ disclosure timeline with you.
 
 Especially in scope, because they are the guarantees this tool makes:
 
-- A way to make mcp-audit **execute code** it shouldn't: launching a package flagged as
+- A way to make sniffmcp **execute code** it shouldn't: launching a package flagged as
   known malware, or running arbitrary commands through MCP server mode without
-  `MCP_AUDIT_ALLOW_COMMANDS=1`
+  `SNIFFMCP_ALLOW_COMMANDS=1`
 - A way to make the crawler contact **non-public addresses** (SSRF), or call a tool instead
   of only listing
 - **Secrets leaking** into reports, SARIF, logs or the local databases' exported output
-- Text in a scanned server's metadata that manipulates mcp-audit's own output or an agent
+- Text in a scanned server's metadata that manipulates sniffmcp's own output or an agent
   reading it
 
 ## How we handle findings about other people's servers

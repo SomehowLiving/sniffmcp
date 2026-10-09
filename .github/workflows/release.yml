@@ -25,7 +25,7 @@ jobs:
 
       - name: Test
         env:
-          MCP_AUDIT_OFFLINE: "1"
+          SNIFFMCP_OFFLINE: "1"
         run: |
           uv venv && uv pip install -e '.[dev]'
           .venv/bin/python -m pytest -q
@@ -37,11 +37,11 @@ jobs:
 
       - name: Smoke-test the wheel in a clean venv
         env:
-          MCP_AUDIT_OFFLINE: "1"
+          SNIFFMCP_OFFLINE: "1"
         run: |
           uv venv /tmp/smoke && uv pip install --python /tmp/smoke/bin/python dist/*.whl
-          /tmp/smoke/bin/mcp-audit --help >/dev/null
-          set +e; /tmp/smoke/bin/mcp-audit fleet tests/fixtures/action/.mcp.json --no-launch; code=$?
+          /tmp/smoke/bin/sniffmcp --help >/dev/null
+          set +e; /tmp/smoke/bin/sniffmcp fleet tests/fixtures/action/.mcp.json --no-launch; code=$?
           test "$code" = "1"   # the fixture's curl|sh server must be caught
 
       - uses: actions/upload-artifact@v4
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/mcp-audit/
+      url: https://pypi.org/project/sniffmcp/
     permissions:
       id-token: write   # trusted publishing; nothing else gets this permission
     steps:

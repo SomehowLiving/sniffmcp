@@ -1,10 +1,10 @@
 """Calibration tests: legitimate servers must stay clean, attacks must be caught."""
-from mcp_audit.checks import (ManifestContext, run_all_checks, check_unpinned_dependencies,
+from sniffmcp.checks import (ManifestContext, run_all_checks, check_unpinned_dependencies,
                               check_token_mismanagement, check_excessive_privileges, check_rug_pull,
                               launch_spec, tool_capability)
-from mcp_audit.engine import report_from_manifest
-from mcp_audit.injection import analyze_descriptions, scan_text
-from mcp_audit.scoring import score_findings
+from sniffmcp.engine import report_from_manifest
+from sniffmcp.injection import analyze_descriptions, scan_text
+from sniffmcp.scoring import score_findings
 
 
 def T(name, desc="", schema=None, annotations=None):
@@ -69,7 +69,7 @@ def test_concealment_variants():
         assert any(h[0] == "concealment from user" for h in scan_text(s)), s
 
 
-# --- MA-04: tokenized names (the old \b regex missed every snake_case tool) ---
+# --- SM-04: tokenized names (the old \b regex missed every snake_case tool) ---
 def test_capabilities_from_snake_and_camel_case():
     assert "destructive" in tool_capability({"name": "delete_file"})
     assert "destructive" in tool_capability({"name": "deleteFile"})
@@ -89,7 +89,7 @@ def test_lying_readonly_annotation_is_high():
     assert not any("readOnlyHint" in f.title for f in check_excessive_privileges(ctx))
 
 
-# --- MA-07: pinning ---
+# --- SM-07: pinning ---
 def test_unpinned_detection():
     def fires(cfg):
         return bool(check_unpinned_dependencies(ManifestContext("t", "stdio", cfg, [])))
@@ -104,7 +104,7 @@ def test_unpinned_detection():
     assert launch_spec({"command": "npx", "args": ["-y", "-p", "pkg@1.0.0", "bin"]}) == ("npm", "pkg@1.0.0")
 
 
-# --- MA-02: secrets are found and never echoed ---
+# --- SM-02: secrets are found and never echoed ---
 def test_secrets_found_and_redacted():
     key = "ghp_" + "a" * 36
     cfg = {"command": "npx", "args": ["--token", key],
@@ -115,7 +115,7 @@ def test_secrets_found_and_redacted():
     assert all(key not in f.evidence for f in findings)
 
 
-# --- MA-03: drift classification ---
+# --- SM-03: drift classification ---
 def test_drift_benign_vs_risky():
     base = [T("summarize", "Summarize a note."), T("format_text", "Format text.")]
     reworded = [T("summarize", "Summarize a note in three sentences."), T("format_text", "Format text.")]
@@ -131,14 +131,14 @@ def test_drift_benign_vs_risky():
 
 
 def test_family_cap_limits_deductions():
-    from mcp_audit.models import Finding
+    from sniffmcp.models import Finding
     score, _ = score_findings([Finding("X", "critical", "t")] * 10)
     assert score == 34  # 50 after the family cap, then capped to F by the critical
 
 
 # --- regressions found by scanning real servers ---
 def test_env_template_is_not_a_secret_path():
-    from mcp_audit.checks import check_sensitive_data_scope
+    from sniffmcp.checks import check_sensitive_data_scope
     def high(uri):
         ctx = ManifestContext("t", "http", {}, [], resources=[{"uri": uri}])
         return [f for f in check_sensitive_data_scope(ctx) if f.severity == "high"]
@@ -149,7 +149,7 @@ def test_env_template_is_not_a_secret_path():
 
 def test_claude_code_project_scoped_servers_are_discovered(tmp_path):
     import json
-    from mcp_audit.fleet import load_servers
+    from sniffmcp.fleet import load_servers
     p = tmp_path / ".claude.json"
     p.write_text(json.dumps({"mcpServers": {"a": {"type": "http", "url": "https://a.example/mcp"}},
                              "projects": {"/home/me/app": {"mcpServers": {"b": {"command": "x"}}}},
@@ -238,7 +238,7 @@ def test_attacks_still_caught_after_precision_fixes():
 
 
 def test_every_check_maps_to_real_owasp_ids():
-    from mcp_audit.report import OWASP_FOR_CHECK, OWASP_MCP, RULES_META
+    from sniffmcp.report import OWASP_FOR_CHECK, OWASP_MCP, RULES_META
     for cid in list(RULES_META) + ["FLEET-01"]:
         assert OWASP_FOR_CHECK.get(cid), cid
         assert all(o in OWASP_MCP for o in OWASP_FOR_CHECK[cid]), cid

@@ -12,24 +12,24 @@ from pathlib import Path
 from .models import Finding
 
 RULES_META = {
-    "MA-01": ("Tool poisoning", "Hidden directives in server-level instructions.", "High"),
-    "MA-02": ("Hardcoded credential", "Secrets found in the server configuration (args/env/config).", "Critical"),
-    "MA-03": ("Rug pull / behavior drift", "Tools or descriptions changed after install-time baseline.", "Critical"),
-    "MA-04": ("Excessive privileges", "Command execution or destructive tools; annotations that misstate a tool as read-only.", "High"),
-    "MA-05": ("Sensitive data scope", "Tool or resource can reach env, credentials, or sensitive paths.", "High"),
-    "MA-06": ("Insecure transport", "Plain HTTP or unauthenticated remote MCP endpoint.", "High"),
-    "MA-07": ("Unpinned dependency", "Server launched via unpinned package runner (npx/uvx/pipx without version).", "Medium"),
-    "MA-08": ("Oversized attack surface", "Unusually many tools, or duplicate tool names.", "Medium"),
-    "MA-09": ("Prompt exposure", "Prompt descriptions contain directive-like content.", "High"),
-    "MA-10": ("Config hygiene", "Launch command pipes a download into a shell, or TLS verification is disabled.", "High"),
-    "MA-11": ("Known malicious package", "OSV / OpenSSF malicious-packages advisory (MAL-) for the launched package.", "Critical"),
-    "MA-12": ("Known vulnerability", "OSV advisory (GHSA / PYSEC / CVE) for the launched package version.", "High"),
+    "SM-01": ("Tool poisoning", "Hidden directives in server-level instructions.", "High"),
+    "SM-02": ("Hardcoded credential", "Secrets found in the server configuration (args/env/config).", "Critical"),
+    "SM-03": ("Rug pull / behavior drift", "Tools or descriptions changed after install-time baseline.", "Critical"),
+    "SM-04": ("Excessive privileges", "Command execution or destructive tools; annotations that misstate a tool as read-only.", "High"),
+    "SM-05": ("Sensitive data scope", "Tool or resource can reach env, credentials, or sensitive paths.", "High"),
+    "SM-06": ("Insecure transport", "Plain HTTP or unauthenticated remote MCP endpoint.", "High"),
+    "SM-07": ("Unpinned dependency", "Server launched via unpinned package runner (npx/uvx/pipx without version).", "Medium"),
+    "SM-08": ("Oversized attack surface", "Unusually many tools, or duplicate tool names.", "Medium"),
+    "SM-09": ("Prompt exposure", "Prompt descriptions contain directive-like content.", "High"),
+    "SM-10": ("Config hygiene", "Launch command pipes a download into a shell, or TLS verification is disabled.", "High"),
+    "SM-11": ("Known malicious package", "OSV / OpenSSF malicious-packages advisory (MAL-) for the launched package.", "Critical"),
+    "SM-12": ("Known vulnerability", "OSV advisory (GHSA / PYSEC / CVE) for the launched package version.", "High"),
     "INJ-HEUR": ("Injection indicator", "Injection pattern in a tool description, title, or parameter description.", "High"),
     "INJ-LLM":  ("LLM-flagged description", "LLM second-opinion flagged a tool description.", "Medium"),
 }
 
-# mcp-audit IDs are our own and do NOT follow OWASP numbering (OWASP MCP01 is token
-# mismanagement; our MA-01 is poisoned server instructions). This map is the bridge.
+# sniffmcp IDs are our own and do NOT follow OWASP numbering (OWASP MCP01 is token
+# mismanagement; our SM-01 is poisoned server instructions). This map is the bridge.
 # Source: OWASP MCP Top 10 (beta, 2025), https://owasp.org/www-project-mcp-top-10/
 OWASP_MCP = {
     "MCP01": "Token Mismanagement & Secret Exposure",
@@ -45,13 +45,13 @@ OWASP_MCP = {
 }
 OWASP_FOR_CHECK = {
     "INJ-HEUR": ["MCP03", "MCP06"], "INJ-LLM": ["MCP03"],
-    "MA-01": ["MCP03", "MCP06"], "MA-02": ["MCP01"], "MA-03": ["MCP03", "MCP04"],
-    "MA-04": ["MCP02", "MCP05"], "MA-05": ["MCP10", "MCP01"], "MA-06": ["MCP07"],
-    "MA-07": ["MCP04"], "MA-08": ["MCP03"], "MA-09": ["MCP03"], "MA-10": ["MCP04", "MCP07"],
-    "MA-11": ["MCP04"], "MA-12": ["MCP04"], "FLEET-01": ["MCP03"],
+    "SM-01": ["MCP03", "MCP06"], "SM-02": ["MCP01"], "SM-03": ["MCP03", "MCP04"],
+    "SM-04": ["MCP02", "MCP05"], "SM-05": ["MCP10", "MCP01"], "SM-06": ["MCP07"],
+    "SM-07": ["MCP04"], "SM-08": ["MCP03"], "SM-09": ["MCP03"], "SM-10": ["MCP04", "MCP07"],
+    "SM-11": ["MCP04"], "SM-12": ["MCP04"], "FLEET-01": ["MCP03"],
 }
 
-REPORT_SCHEMA = "mcp-audit/report@2.0.0"   # 2.0: check IDs renamed MCP-xx -> MA-xx
+REPORT_SCHEMA = "sniffmcp/report@3.0.0"   # 3.0: project renamed; check IDs MA-xx -> SM-xx
 
 def to_sarif(findings: list[Finding], target: str = "mcp-target") -> dict:
     rules, results = [], []
@@ -64,7 +64,7 @@ def to_sarif(findings: list[Finding], target: str = "mcp-target") -> dict:
             rules.append({"id": fam, "name": name,
                           "shortDescription": {"text": f"{name} ({fam})"},
                           "fullDescription": {"text": desc},
-                          "helpUri": f"https://mcp-audit.dev/rules/{fam}"})
+                          "helpUri": f"https://sniffmcp.dev/rules/{fam}"})
         results.append({
             "ruleId": fam,
             "level": {"critical": "error", "high": "error", "medium": "warning",
@@ -79,7 +79,7 @@ def to_sarif(findings: list[Finding], target: str = "mcp-target") -> dict:
         })
     return {"$schema": "https://json.schemastore.org/sarif-2.1.0.json",
             "version": "2.1.0",
-            "runs": [{"tool": {"driver": {"name": "mcp-audit",
+            "runs": [{"tool": {"driver": {"name": "sniffmcp",
                                           "version": REPORT_SCHEMA,
                                           "rules": rules}},
                       "results": results}]}
@@ -99,12 +99,12 @@ def finding_key_from_dict(d: dict) -> str:
     return f"{d.get('check_id','')}|{d.get('tool_name') or ''}|{d.get('title','')}"
 
 # ---------- suppressions ----------
-SUPPRESSION_RX = re.compile(r"mcp-audit:\s*ignore\[([A-Z0-9,\-\s]+)\]\s*reason=(.+)")
+SUPPRESSION_RX = re.compile(r"sniffmcp:\s*ignore\[([A-Z0-9,\-\s]+)\]\s*reason=(.+)")
 SEVERITY_RANK = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
 
 def apply_suppressions(findings: list[Finding], config_text: str = "", suppress_file: str | None = None) -> list[Finding]:
     """Parse reason-bearing directives from any text (config file, README) plus an
-    optional suppressions JSON: {"MA-02": "reason", "MA-05:env_dump": "reason"}."""
+    optional suppressions JSON: {"SM-02": "reason", "SM-05:env_dump": "reason"}."""
     allowed = set()
     for m in SUPPRESSION_RX.finditer(config_text or ""):
         for rid in m.group(1).split(","):
@@ -175,7 +175,7 @@ def fleet_to_sarif(fleet: dict, min_severity: str = "low") -> dict:
                 name, desc, _ = RULES_META.get(cid, (cid, cid, "Medium"))
                 rules.append({"id": cid, "name": name, "shortDescription": {"text": f"{name} ({cid})"},
                               "fullDescription": {"text": desc},
-                              "helpUri": f"https://github.com/SomehowLiving/mcp-audit#checks",
+                              "helpUri": f"https://github.com/SomehowLiving/sniffmcp#checks",
                               "properties": {"tags": ["security"] + [f"OWASP-{o}" for o in OWASP_FOR_CHECK.get(cid, [])]}})
             results.append({
                 "ruleId": cid,
@@ -187,8 +187,8 @@ def fleet_to_sarif(fleet: dict, min_severity: str = "low") -> dict:
                                "owasp_mcp": OWASP_FOR_CHECK.get(cid, []), "suppressed": f.get("suppressed", False)},
             })
     return {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0",
-            "runs": [{"tool": {"driver": {"name": "mcp-audit", "version": REPORT_SCHEMA,
-                                          "informationUri": "https://github.com/SomehowLiving/mcp-audit",
+            "runs": [{"tool": {"driver": {"name": "sniffmcp", "version": REPORT_SCHEMA,
+                                          "informationUri": "https://github.com/SomehowLiving/sniffmcp",
                                           "rules": rules}},
                       "invocations": [{"executionSuccessful": True, "toolExecutionNotifications": notes}],
                       "results": results}]}
