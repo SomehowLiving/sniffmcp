@@ -23,3 +23,45 @@ jobs:
       - run: uv venv --python ${{ matrix.python }}
       - run: uv pip install -e '.[dev]'
       - run: .venv/bin/python -m pytest -q
+
+  action:
+    # Runs this repo's own action (./action.yml) on a fixture config, both ways.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Passes when nothing reaches the threshold
+        id: pass
+        uses: ./
+        with:
+          config: tests/fixtures/action/.mcp.json
+          fail-on: critical
+          offline: "true"
+          upload-sarif: "false"   # code scanning upload needs a public repo or GitHub Advanced Security
+
+      - name: Fails on the fixture's curl|sh server at fail-on high
+        id: fail
+        continue-on-error: true
+        uses: ./
+        with:
+          config: tests/fixtures/action/.mcp.json
+          fail-on: high
+          offline: "true"
+          upload-sarif: "false"
+          sarif-file: high.sarif
+
+      - name: Check outcomes and SARIF
+        env:
+          PASS_CODE: ${{ steps.pass.outputs.exit-code }}
+          FAIL_OUTCOME: ${{ steps.fail.outcome }}
+        run: |
+          test "$PASS_CODE" = "0"
+          test "$FAIL_OUTCOME" = "failure"
+          python3 - <<'PY'
+          import json
+          run = json.load(open("high.sarif"))["runs"][0]
+          assert any(r["ruleId"] == "MA-10" for r in run["results"]), run["results"]
+          loc = run["results"][0]["locations"][0]["physicalLocation"]
+          assert loc["artifactLocation"]["uri"] == "tests/fixtures/action/.mcp.json", loc
+          print("action OK:", len(run["results"]), "results")
+          PY

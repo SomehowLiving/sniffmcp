@@ -51,6 +51,7 @@ $ mcp-audit scan '{"command":"npx","args":["-y","@callcenter-frontend/api@99.0.2
 mcp-audit fleet                                  # every installed server (Claude Code incl. per-project, Claude Desktop, Cursor, Windsurf, .mcp.json)
 mcp-audit scan https://mcp.example.com/mcp       # one remote server
 mcp-audit scan cfg.json --format sarif --output results.sarif   # GitHub code scanning
+mcp-audit fleet .mcp.json --no-launch --format sarif --output r.sarif   # CI: never start servers from an untrusted config
 mcp-audit scan cfg.json --baseline last.json --fail-on high     # CI gate; known findings don't fail
 mcp-audit watch cfg.json --name memory --webhook https://hooks.slack.com/...   # baseline + watch
 mcp-audit watch --name memory --accept           # accept the current version after review
@@ -64,6 +65,34 @@ Exit codes: `0` clean · `1` finding at/above `--fail-on` · `2` bad config · `
 > **Scanning a stdio server runs its command**, exactly as your client does at startup.
 > mcp-audit checks the package against OSV first and refuses to launch known malware,
 > but only scan configs you would run anyway.
+
+### In GitHub Actions
+
+Teams commit `.mcp.json` (Claude Code's project servers) and `.cursor/mcp.json` to their repos.
+Audit them on every pull request, with findings shown on the exact line of the config:
+
+```yaml
+name: mcp-audit
+on: [pull_request, push]
+permissions:
+  contents: read
+  security-events: write   # for code scanning upload
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: SomehowLiving/mcp-audit@v0.3.0
+        with:
+          config: .mcp.json .cursor/mcp.json
+          fail-on: high
+```
+
+By default the action **does not start any server** (`launch: false`): a pull request could
+add a server whose command is the attack. It runs the config checks (secrets, pinning,
+`curl | sh`, plain HTTP) and OSV malware/vulnerability lookups, and connects to remote URLs.
+It writes a job summary table and SARIF for code scanning. Inputs: `config`, `fail-on`,
+`launch`, `offline`, `fail-on-unreachable`, `sarif-file`, `upload-sarif`.
 
 ### Inside your agent
 

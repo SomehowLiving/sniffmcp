@@ -62,9 +62,9 @@ def load_servers(path: str) -> dict[str, dict]:
     return servers
 
 
-async def scan_one(name: str, config: dict, fail_on: str = "high") -> dict:
+async def scan_one(name: str, config: dict, fail_on: str = "high", launch: bool = True) -> dict:
     try:
-        report, manifest = await scan(config)
+        report, manifest = await scan(config, launch=launch)
     except ConnectError as e:
         return {"name": name, "target": config.get("url") or config.get("command", "?"),
                 "status": "error", "error": str(e)}
@@ -87,7 +87,7 @@ def tool_collisions(results: list[dict]) -> list[Finding]:
             for t, s in sorted(owners.items()) if len(s) > 1]
 
 
-async def scan_fleet(paths: list[str] | None = None, fail_on: str = "high") -> dict:
+async def scan_fleet(paths: list[str] | None = None, fail_on: str = "high", launch: bool = True) -> dict:
     if not paths:
         paths = discover_config_paths()
     if not paths:
@@ -107,7 +107,7 @@ async def scan_fleet(paths: list[str] | None = None, fail_on: str = "high") -> d
     sem = asyncio.Semaphore(4)  # don't fork-bomb the user's machine
     async def bounded(name, cfg):
         async with sem:
-            r = await scan_one(name, cfg, fail_on)
+            r = await scan_one(name, cfg, fail_on, launch)
             r["source"] = sources.get(name, "")
             return r
     results = await asyncio.gather(*[bounded(n, c) for n, c in servers.items()])
@@ -115,7 +115,7 @@ async def scan_fleet(paths: list[str] | None = None, fail_on: str = "high") -> d
     # first run. Retry those one at a time; the package cache is warm by now.
     for i, r in enumerate(results):
         if r["status"] == "error" and "timed out" in r["error"] and "command" in servers[r["name"]]:
-            retry = await scan_one(r["name"], servers[r["name"]], fail_on)
+            retry = await scan_one(r["name"], servers[r["name"]], fail_on, launch)
             retry["source"] = r["source"]
             results[i] = retry
 
@@ -161,3 +161,22 @@ def fleet_console(fleet: dict) -> None:
             print(f"  [error] {r['name']}: {r['error'][:200]}")
     for w in s["warnings"]:
         print(f"  [warning] {w}")
+
+
+def fleet_markdown(fleet: dict, title: str = "mcp-audit") -> str:
+    """Compact Markdown for a CI job summary."""
+    s = fleet["summary"]
+    L = [f"### {title}", "",
+         f"{s['scanned']}/{s['total']} MCP servers analysed"
+         + (f", {s['failed']} not reachable" if s["failed"] else "") + "", "",
+         "| server | grade | high / critical findings |", "|---|---|---|"]
+    for r in sorted(fleet["servers"], key=lambda r: r.get("score", -1)):
+        if r["status"] != "ok":
+            L.append(f"| `{r['name']}` | – | not analysed: {r['error'][:80]} |")
+            continue
+        bad = [f"{f['check_id']} {f['title']}" for f in r["findings"]
+               if f["severity"] in ("critical", "high") and not f.get("suppressed")]
+        L.append(f"| `{r['name']}` | {r['grade']} ({r['score']}) | {'<br>'.join(bad[:4]) or '—'} |")
+    for c in s["tool_name_collisions"]:
+        L.append(f"\nTool name `{c['tool']}` is exposed by several servers: {c['servers']}")
+    return "\n".join(L)

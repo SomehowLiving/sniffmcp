@@ -34,9 +34,11 @@ def report_from_manifest(config: dict, manifest: dict, prior: dict | None = None
                       tool_count=len(tools))
 
 
-async def scan(config: dict, prior: dict | None = None) -> tuple[ScanReport, dict]:
+async def scan(config: dict, prior: dict | None = None, launch: bool = True) -> tuple[ScanReport, dict]:
     """Check the package against OSV, then connect and audit.
-    Known malware is reported without ever being launched.
+    Known malware is reported without ever being launched. With launch=False, stdio
+    servers are never started (config + OSV checks only), which is what CI wants for a
+    config file that came from a pull request.
     Raises client.ConnectError if the server can't be reached."""
     pre: list[Finding] = []
     spec = launch_spec(config) if transport_of(config) == "stdio" else None
@@ -45,5 +47,10 @@ async def scan(config: dict, prior: dict | None = None) -> tuple[ScanReport, dic
         if osv.blocks_launch(pre):
             manifest = {"tools": [], "errors": ["not launched: the package is known malware (OSV)"]}
             return report_from_manifest(config, manifest, prior, extra=pre), manifest
+    if not launch and transport_of(config) == "stdio":
+        manifest = {"tools": []}
+        pre.append(Finding("MA-10", "info", "Not launched (--no-launch): config and package checks only", "",
+                           "Run without --no-launch on a trusted machine to inspect the server's tools."))
+        return report_from_manifest(config, manifest, prior, extra=pre), manifest
     manifest = await fetch_manifest(config)
     return report_from_manifest(config, manifest, prior, extra=pre), manifest

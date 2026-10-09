@@ -23,7 +23,7 @@ from pathlib import Path
 from .client import ConnectError, transport_of
 from .engine import scan
 from .scoring import summarize
-from .report import to_sarif, to_json_report, diff_baseline, apply_suppressions, gate, SEVERITY_RANK
+from .report import to_sarif, fleet_to_sarif, to_json_report, diff_baseline, apply_suppressions, gate, SEVERITY_RANK
 from .state import Store
 from . import watcher
 from .fleet import scan_fleet, fleet_console
@@ -57,7 +57,7 @@ async def cmd_scan(args) -> int:
         print(f"error: config must be JSON, a JSON file path, or a URL ({e})", file=sys.stderr)
         return 2
     try:
-        report, _ = await scan(config)
+        report, _ = await scan(config, launch=not args.no_launch)
     except ConnectError as e:
         print(f"error: {e}", file=sys.stderr)
         return 3
@@ -169,6 +169,7 @@ def main(argv=None) -> int:
     s.add_argument("--baseline", default=None, help="previous JSON report; matched findings don't gate")
     s.add_argument("--suppress", default=None, help="suppressions file (directives or JSON rules)")
     s.add_argument("--offline", action="store_true", help="skip OSV malware/vulnerability lookups")
+    s.add_argument("--no-launch", action="store_true", help="never start a stdio server: config + OSV checks only")
 
     wch = sub.add_parser("watch", help="baseline a server and report post-install changes")
     wch.add_argument("config", nargs="?", help="config to create/update the watch")
@@ -180,10 +181,12 @@ def main(argv=None) -> int:
 
     fl = sub.add_parser("fleet", help="scan every installed MCP server from client configs")
     fl.add_argument("paths", nargs="*", help="config file paths; omit to auto-discover")
-    fl.add_argument("--format", choices=["console", "json"], default="console")
+    fl.add_argument("--format", choices=["console", "json", "sarif"], default="console")
     fl.add_argument("--output", default=None)
     fl.add_argument("--fail-on", default="high", choices=list(SEVERITY_RANK.keys()))
     fl.add_argument("--offline", action="store_true", help="skip OSV malware/vulnerability lookups")
+    fl.add_argument("--no-launch", action="store_true",
+                    help="never start stdio servers: config + OSV checks only (use in CI on untrusted configs)")
 
     cr = sub.add_parser("crawl", help="crawl the official MCP registry and snapshot public servers over time")
     cr.add_argument("action", choices=["sync", "probe", "packages", "advisories", "report", "run", "rescore"],
@@ -205,12 +208,12 @@ def main(argv=None) -> int:
         os.environ["MCP_AUDIT_OFFLINE"] = "1"
     if args.cmd == "fleet":
         try:
-            fleet = asyncio.run(scan_fleet(args.paths or None, args.fail_on))
+            fleet = asyncio.run(scan_fleet(args.paths or None, args.fail_on, launch=not args.no_launch))
         except ValueError as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
-        if args.format == "json":
-            out = json.dumps(fleet, indent=2)
+        if args.format in ("json", "sarif"):
+            out = json.dumps(fleet if args.format == "json" else fleet_to_sarif(fleet), indent=2)
             if args.output:
                 Path(args.output).write_text(out)
                 print(f"wrote {args.output}")

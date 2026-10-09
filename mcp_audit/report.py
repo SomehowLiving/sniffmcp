@@ -136,3 +136,59 @@ def to_json_report(target, score, grade, findings, manifest_hash) -> dict:
                           "owasp_mcp": OWASP_FOR_CHECK.get(f.check_id, []),
                           "suppressed": getattr(f, "suppressed", False)}
                          for f in findings]}
+
+# ---------- fleet SARIF (CI: annotate the config file itself) ----------
+def _server_line(path: str, name: str) -> int:
+    """1-based line where a server is defined in its config file, so code scanning can
+    annotate the exact entry a pull request added."""
+    key = f'"{name.rsplit(" (", 1)[0]}"'   # "name (project)" -> "name"
+    try:
+        for i, line in enumerate(Path(path).read_text().splitlines(), 1):
+            if key in line:
+                return i
+    except OSError:
+        pass
+    return 1
+
+
+def _artifact_uri(path: str) -> str:
+    """Repo-relative when the file is under the working directory (GitHub requires that)."""
+    import os
+    rel = os.path.relpath(path)
+    return (rel if not rel.startswith("..") else path).replace(os.sep, "/")
+
+
+def fleet_to_sarif(fleet: dict, min_severity: str = "low") -> dict:
+    floor = SEVERITY_RANK[min_severity]
+    rules, seen, results, notes = [], set(), [], []
+    for r in fleet["servers"]:
+        if r["status"] != "ok":
+            notes.append({"level": "warning", "message": {"text": f"{r['name']}: not analysed ({r['error'][:200]})"}})
+            continue
+        uri, line = _artifact_uri(r.get("source") or "mcp.json"), _server_line(r.get("source") or "", r["name"])
+        for f in r["findings"]:
+            if SEVERITY_RANK.get(f["severity"], 0) < floor:
+                continue
+            cid = f["check_id"]
+            if cid not in seen:
+                seen.add(cid)
+                name, desc, _ = RULES_META.get(cid, (cid, cid, "Medium"))
+                rules.append({"id": cid, "name": name, "shortDescription": {"text": f"{name} ({cid})"},
+                              "fullDescription": {"text": desc},
+                              "helpUri": f"https://github.com/SomehowLiving/mcp-audit#checks",
+                              "properties": {"tags": ["security"] + [f"OWASP-{o}" for o in OWASP_FOR_CHECK.get(cid, [])]}})
+            results.append({
+                "ruleId": cid,
+                "level": {"critical": "error", "high": "error", "medium": "warning"}.get(f["severity"], "note"),
+                "message": {"text": f"MCP server '{r['name']}': {f['title']}. {f['evidence']} Fix: {f['remediation']}".strip()},
+                "locations": [{"physicalLocation": {"artifactLocation": {"uri": uri}, "region": {"startLine": line}},
+                               "logicalLocations": [{"name": r["name"], "kind": "module"}]}],
+                "properties": {"severity": f["severity"], "check_id": cid, "server": r["name"],
+                               "owasp_mcp": OWASP_FOR_CHECK.get(cid, []), "suppressed": f.get("suppressed", False)},
+            })
+    return {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0",
+            "runs": [{"tool": {"driver": {"name": "mcp-audit", "version": REPORT_SCHEMA,
+                                          "informationUri": "https://github.com/SomehowLiving/mcp-audit",
+                                          "rules": rules}},
+                      "invocations": [{"executionSuccessful": True, "toolExecutionNotifications": notes}],
+                      "results": results}]}

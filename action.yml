@@ -1,0 +1,103 @@
+name: MCP Audit Scan
+description: Audit the MCP servers in your repo's MCP config for hidden instructions, known malware, leaked secrets and unpinned packages.
+author: SomehowLiving
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  config:
+    description: MCP config file(s) to audit, space-separated (e.g. .mcp.json, .cursor/mcp.json)
+    default: .mcp.json
+  fail-on:
+    description: Fail the job on findings at or above this severity (critical, high, medium, low, info)
+    default: high
+  launch:
+    description: >-
+      Start stdio servers to inspect their tools. This RUNS the configured commands on the
+      runner, so leave it off for configs that come from pull requests. Default off:
+      config + OSV checks only.
+    default: "false"
+  offline:
+    description: Skip OSV.dev malware/vulnerability lookups
+    default: "false"
+  fail-on-unreachable:
+    description: Fail when a server can't be analysed (e.g. remote servers behind OAuth)
+    default: "false"
+  sarif-file:
+    description: Where to write the SARIF report
+    default: mcp-audit.sarif
+  upload-sarif:
+    description: Upload the SARIF report to GitHub code scanning (needs security-events write permission)
+    default: "true"
+
+outputs:
+  sarif-file:
+    description: Path of the SARIF report
+    value: ${{ steps.scan.outputs.sarif-file }}
+  exit-code:
+    description: "mcp-audit exit code: 0 clean, 1 findings at/above fail-on, 2 bad config, 3 some servers not analysed"
+    value: ${{ steps.scan.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v5
+
+    - name: Install mcp-audit
+      shell: bash
+      run: |
+        uv venv --quiet "$RUNNER_TEMP/mcp-audit-venv" --python 3.12
+        uv pip install --quiet --python "$RUNNER_TEMP/mcp-audit-venv/bin/python" "$GITHUB_ACTION_PATH"
+
+    - name: Audit MCP config
+      id: scan
+      shell: bash
+      env:
+        IN_CONFIG: ${{ inputs.config }}
+        IN_FAIL_ON: ${{ inputs.fail-on }}
+        IN_LAUNCH: ${{ inputs.launch }}
+        IN_OFFLINE: ${{ inputs.offline }}
+        IN_SARIF: ${{ inputs.sarif-file }}
+      run: |
+        set +e
+        PY="$RUNNER_TEMP/mcp-audit-venv/bin/python"
+        args=(fleet --format json --output "$RUNNER_TEMP/mcp-audit-fleet.json" --fail-on "$IN_FAIL_ON")
+        [ "$IN_LAUNCH" = "true" ] || args+=(--no-launch)
+        [ "$IN_OFFLINE" = "true" ] && args+=(--offline)
+        read -ra configs <<< "$IN_CONFIG"
+        "$RUNNER_TEMP/mcp-audit-venv/bin/mcp-audit" "${args[@]}" "${configs[@]}"
+        code=$?
+        if [ -f "$RUNNER_TEMP/mcp-audit-fleet.json" ]; then
+          "$PY" - "$RUNNER_TEMP/mcp-audit-fleet.json" "$IN_SARIF" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+        import json, sys
+        from mcp_audit.fleet import fleet_markdown
+        from mcp_audit.report import fleet_to_sarif
+        fleet = json.load(open(sys.argv[1]))
+        open(sys.argv[2], "w").write(json.dumps(fleet_to_sarif(fleet), indent=2))
+        print(fleet_markdown(fleet))
+        PY
+        fi
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        echo "sarif-file=$IN_SARIF" >> "$GITHUB_OUTPUT"
+
+    - name: Upload SARIF to code scanning
+      if: ${{ always() && inputs.upload-sarif == 'true' && hashFiles(inputs.sarif-file) != '' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: mcp-audit
+
+    - name: Apply result
+      shell: bash
+      env:
+        CODE: ${{ steps.scan.outputs.exit-code }}
+        IN_FAIL_UNREACHABLE: ${{ inputs.fail-on-unreachable }}
+      run: |
+        case "$CODE" in
+          0) echo "mcp-audit: clean" ;;
+          1) echo "::error::mcp-audit found issues at or above the fail-on threshold (see the job summary / code scanning)"; exit 1 ;;
+          3) if [ "$IN_FAIL_UNREACHABLE" = "true" ]; then echo "::error::some MCP servers could not be analysed"; exit 1;
+             else echo "::warning::some MCP servers could not be analysed (e.g. OAuth-protected remotes)"; fi ;;
+          *) echo "::error::mcp-audit failed to run (exit $CODE)"; exit 1 ;;
+        esac

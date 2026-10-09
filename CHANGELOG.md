@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 — 2026-10-09
+
+### Added
+- **GitHub Action** (`action.yml`): audits committed MCP configs on pull requests, with a job
+  summary table and SARIF annotations on the exact config line. Never launches servers by default.
+- `--no-launch` for `scan` and `fleet`: config + OSV checks without starting stdio servers.
+- `fleet --format sarif` with physical locations in the config file.
+
 ## 0.2.0 — 2026-10-09
 
 First working release.
