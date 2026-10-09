@@ -53,9 +53,12 @@ jobs:
       - name: Check outcomes and SARIF
         env:
           PASS_CODE: ${{ steps.pass.outputs.exit-code }}
+          FAIL_CODE: ${{ steps.fail.outputs.exit-code }}
           FAIL_OUTCOME: ${{ steps.fail.outcome }}
         run: |
           test "$PASS_CODE" = "0"
+          # must fail *because of findings* (exit 1), not because the action broke
+          test "$FAIL_CODE" = "1"
           test "$FAIL_OUTCOME" = "failure"
           python3 - <<'PY'
           import json

@@ -47,7 +47,7 @@ runs:
     - name: Install mcp-audit
       shell: bash
       run: |
-        uv venv --quiet "$RUNNER_TEMP/mcp-audit-venv" --python 3.12
+        uv venv --quiet --clear "$RUNNER_TEMP/mcp-audit-venv" --python 3.12   # --clear: the action may run several times in one job
         uv pip install --quiet --python "$RUNNER_TEMP/mcp-audit-venv/bin/python" "$GITHUB_ACTION_PATH"
 
     - name: Audit MCP config
