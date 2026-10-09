@@ -24,3 +24,7 @@ PROJECT.md
 
 # Local scratch: cut code kept for reference
 _attic/
+
+# Raw brand artwork (web-sized copies live in assets/)
+/mcp-snoop.png
+/sniffmcp.png

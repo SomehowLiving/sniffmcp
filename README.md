@@ -1,6 +1,11 @@
-# SniffMCP 🕵️
+<p align="center">
+  <img src="assets/logo.png" alt="SniffMCP: a raccoon detective with a magnifying glass inspecting an MCP cube" width="360">
+</p>
 
-**Sniff out risky MCP servers before they sniff out your secrets.**
+<h1 align="center">SniffMCP</h1>
+
+<p align="center"><b>Sniff out what your AI tools are hiding.</b><br>
+Local security checks for the MCP servers plugged into your AI agent.</p>
 
 SniffMCP connects to every MCP server in your Claude Code, Claude Desktop, Cursor or
 Windsurf config the way your client does, reads everything the model will read, and tells
@@ -226,4 +231,4 @@ which is now a rule. Use more than one tool.
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache-2.0](LICENSE). Mascot and brand artwork in `assets/` are part of the SniffMCP brand.
