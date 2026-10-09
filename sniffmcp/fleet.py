@@ -13,7 +13,7 @@ startup. Per-server failures never abort the fleet scan — one dead server must
 not hide the other fourteen.
 """
 from __future__ import annotations
-import asyncio, json, os
+import asyncio, json, os, sys
 from pathlib import Path
 
 from .client import ConnectError
@@ -62,9 +62,10 @@ def load_servers(path: str) -> dict[str, dict]:
     return servers
 
 
-async def scan_one(name: str, config: dict, fail_on: str = "high", launch: bool = True) -> dict:
+async def scan_one(name: str, config: dict, fail_on: str = "high", launch: bool = True,
+                   auth: str = "stored") -> dict:
     try:
-        report, manifest = await scan(config, launch=launch)
+        report, manifest = await scan(config, launch=launch, auth=auth)
     except ConnectError as e:
         return {"name": name, "target": config.get("url") or config.get("command", "?"),
                 "status": "error", "error": str(e)}
@@ -87,7 +88,8 @@ def tool_collisions(results: list[dict]) -> list[Finding]:
             for t, s in sorted(owners.items()) if len(s) > 1]
 
 
-async def scan_fleet(paths: list[str] | None = None, fail_on: str = "high", launch: bool = True) -> dict:
+async def scan_fleet(paths: list[str] | None = None, fail_on: str = "high", launch: bool = True,
+                     login: bool = False) -> dict:
     if not paths:
         paths = discover_config_paths()
     if not paths:
@@ -118,6 +120,14 @@ async def scan_fleet(paths: list[str] | None = None, fail_on: str = "high", laun
             retry = await scan_one(r["name"], servers[r["name"]], fail_on, launch)
             retry["source"] = r["source"]
             results[i] = retry
+    # --login: one browser login at a time for servers that asked for OAuth
+    if login:
+        for i, r in enumerate(results):
+            if r["status"] == "error" and "sniffmcp login" in r["error"]:
+                print(f"\n  {r['name']} needs a login.", file=sys.stderr)
+                retry = await scan_one(r["name"], servers[r["name"]], fail_on, launch, auth="interactive")
+                retry["source"] = r["source"]
+                results[i] = retry
 
     ok = [r for r in results if r["status"] == "ok"]
     errs = [r for r in results if r["status"] == "error"]
@@ -159,6 +169,8 @@ def fleet_console(fleet: dict) -> None:
     for r in fleet["servers"]:
         if r["status"] == "error":
             print(f"  [error] {r['name']}: {r['error'][:200]}")
+    if any("sniffmcp login" in r.get("error", "") for r in fleet["servers"]):
+        print("  tip: `sniffmcp fleet --login` logs in to each of these once; later scans reuse the login")
     for w in s["warnings"]:
         print(f"  [warning] {w}")
 

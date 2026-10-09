@@ -14,7 +14,9 @@ Especially in scope, because they are the guarantees this tool makes:
   `SNIFFMCP_ALLOW_COMMANDS=1`
 - A way to make the crawler contact **non-public addresses** (SSRF), or call a tool instead
   of only listing
-- **Secrets leaking** into reports, SARIF, logs or the local databases' exported output
+- **Secrets leaking** into reports, SARIF, logs or the local databases' exported output, including
+  OAuth tokens stored in `~/.sniffmcp/oauth/`
+- A way to make a scan *call* a tool (rather than list it) using a stored OAuth login
 - Text in a scanned server's metadata that manipulates sniffmcp's own output or an agent
   reading it
 

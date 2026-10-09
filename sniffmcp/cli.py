@@ -157,6 +157,46 @@ async def cmd_crawl(args) -> int:
     return 0
 
 
+def resolve_target(target: str) -> tuple[str, dict]:
+    """A URL, a JSON config, or the name of a server in your client configs."""
+    from .fleet import discover_config_paths, load_servers
+    if target.startswith(("https://", "http://", "{")) or Path(target).is_file():
+        cfg = load_config(target)
+        return cfg.get("url") or target, cfg
+    for p in discover_config_paths():
+        try:
+            servers = load_servers(p)
+        except Exception:
+            continue
+        if target in servers:
+            return target, servers[target]
+    raise ValueError(f"'{target}' is not a URL, a config file, or a server in your client configs")
+
+
+async def cmd_login(args) -> int:
+    from .oauth import FileTokenStorage
+    try:
+        name, config = resolve_target(args.target)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    if "url" not in config:
+        print(f"error: '{name}' is a local (stdio) server; OAuth only applies to remote servers", file=sys.stderr)
+        return 2
+    if args.logout:
+        gone = FileTokenStorage(config["url"]).delete()
+        print(f"logged out of {config['url']}" if gone else f"no stored login for {config['url']}")
+        return 0
+    try:
+        report, _ = await scan(config, auth="interactive")
+    except ConnectError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 3
+    print(f"logged in to {config['url']} (token stored owner-only in ~/.sniffmcp/oauth/)")
+    console_print(report)
+    return gate(report.findings, "high")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="sniffmcp")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -185,6 +225,8 @@ def main(argv=None) -> int:
     fl.add_argument("--output", default=None)
     fl.add_argument("--fail-on", default="high", choices=list(SEVERITY_RANK.keys()))
     fl.add_argument("--offline", action="store_true", help="skip OSV malware/vulnerability lookups")
+    fl.add_argument("--login", action="store_true",
+                    help="log in (browser) to installed servers that require OAuth, one at a time")
     fl.add_argument("--no-launch", action="store_true",
                     help="never start stdio servers: config + OSV checks only (use in CI on untrusted configs)")
 
@@ -199,6 +241,12 @@ def main(argv=None) -> int:
     cr.add_argument("--days", type=int, default=7, help="report window")
     cr.add_argument("--output", default=None, help="write the report here instead of stdout")
 
+    lg = sub.add_parser("login", help="log in to an OAuth-protected server (opens your browser), then scan it")
+    lg.add_argument("target", help="server URL or the name of a server in your client configs")
+    lo = sub.add_parser("logout", help="forget a stored login")
+    lo.add_argument("target")
+    sub.add_parser("logins", help="list servers you have logged in to")
+
     sv = sub.add_parser("serve", help="run as an MCP server")
     sv.add_argument("--http", action="store_true")
     sv.add_argument("--port", type=int, default=8930)
@@ -208,7 +256,8 @@ def main(argv=None) -> int:
         os.environ["SNIFFMCP_OFFLINE"] = "1"
     if args.cmd == "fleet":
         try:
-            fleet = asyncio.run(scan_fleet(args.paths or None, args.fail_on, launch=not args.no_launch))
+            fleet = asyncio.run(scan_fleet(args.paths or None, args.fail_on, launch=not args.no_launch,
+                                           login=args.login))
         except ValueError as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
@@ -226,6 +275,17 @@ def main(argv=None) -> int:
         return asyncio.run(cmd_scan(args))
     if args.cmd == "watch":
         return asyncio.run(cmd_watch(args))
+    if args.cmd in ("login", "logout"):
+        args.logout = args.cmd == "logout"
+        return asyncio.run(cmd_login(args))
+    if args.cmd == "logins":
+        from .oauth import logged_in_servers
+        rows = logged_in_servers()
+        for r in rows:
+            print(f"  {r['server_url']}")
+        if not rows:
+            print("no stored logins")
+        return 0
     if args.cmd == "crawl":
         return asyncio.run(cmd_crawl(args))
     if args.cmd == "serve":

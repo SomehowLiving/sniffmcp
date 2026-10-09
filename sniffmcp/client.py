@@ -86,7 +86,16 @@ async def _collect(client: Client) -> dict:
     return manifest
 
 
-def _transport_for(config: dict, errlog):
+def _auth(config: dict, url: str, headers: dict, auth: str):
+    """OAuth provider for a remote server. Explicit Authorization headers always win;
+    auth="none" (crawler, CI) never touches stored logins."""
+    if auth == "none" or any(k.lower() == "authorization" for k in headers):
+        return None
+    from .oauth import auth_for
+    return auth_for(url, interactive=(auth == "interactive"))
+
+
+def _transport_for(config: dict, errlog, auth: str = "stored"):
     kind = transport_of(config)
     if kind == "stdio":
         cmd = config.get("command")
@@ -99,19 +108,25 @@ def _transport_for(config: dict, errlog):
         return stdio_client(params, errlog=errlog)
     url = _expand(config["url"])
     headers = {k: _expand(str(v)) for k, v in (config.get("headers") or {}).items()}
+    provider = _auth(config, url, headers, auth)
     if kind == "sse":
-        return sse_client(url, headers=headers or None)
-    return streamable_http_client(url, http_client=create_mcp_http_client(headers=headers or None))
+        return sse_client(url, headers=headers or None, auth=provider)
+    return streamable_http_client(url, http_client=create_mcp_http_client(headers=headers or None, auth=provider))
 
 
-async def fetch_manifest(config: dict, client_name: str = "sniffmcp") -> dict:
-    """Connect, negotiate, and return tools/resources/prompts/server_info/instructions."""
+async def fetch_manifest(config: dict, client_name: str = "sniffmcp", auth: str = "stored") -> dict:
+    """Connect, negotiate, and return tools/resources/prompts/server_info/instructions.
+    auth: "stored" uses a saved OAuth login if there is one (never opens a browser),
+    "interactive" may run the browser login, "none" never uses OAuth (crawler, CI)."""
     kind = transport_of(config)
     timeout = float(config.get("timeout") or
                     (DEFAULT_TIMEOUT_STDIO if kind == "stdio" else DEFAULT_TIMEOUT_HTTP))
+    if auth == "interactive":
+        from .oauth import LOGIN_TIMEOUT
+        timeout = max(timeout, LOGIN_TIMEOUT + 30)   # a person is logging in
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as errlog:
         try:
-            transport = _transport_for(config, errlog)
+            transport = _transport_for(config, errlog, auth)
             with anyio.fail_after(timeout):
                 async with Client(transport, mode="auto", cache=None,
                                   client_info=Implementation(name=client_name, version=__version__)) as client:
@@ -122,6 +137,8 @@ async def fetch_manifest(config: dict, client_name: str = "sniffmcp") -> dict:
             raise ConnectError(f"timed out after {timeout:.0f}s{_stderr_tail(errlog)}") from None
         except Exception as e:
             inner = _innermost(e)
+            if "stored login has expired" in str(inner):
+                raise ConnectError(f"OAuth login expired; run: sniffmcp login {config.get('url')}") from None
             if kind != "stdio":
                 hint = await _http_status_hint(config)
                 if hint:
@@ -144,8 +161,8 @@ async def _http_status_hint(config: dict) -> str | None:
         return None
     if r.status_code in (401, 403):
         oauth = "resource_metadata" in r.headers.get("www-authenticate", "")
-        return (f"requires authentication (HTTP {r.status_code}"
-                f"{', OAuth' if oauth else ''}); pass credentials in \"headers\" to scan it")
+        how = f"run: sniffmcp login {config['url']}" if oauth else 'pass credentials in "headers"'
+        return f"requires authentication (HTTP {r.status_code}{', OAuth' if oauth else ''}); {how}"
     if r.status_code >= 400:
         return f"HTTP {r.status_code} from server"
     return None

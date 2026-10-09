@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 — unreleased
+
+### Added
+- **OAuth login** for servers that require it: `sniffmcp login`, `logout`, `logins`, and
+  `fleet --login`. Uses the MCP SDK's OAuth 2.1 client (discovery, dynamic client registration,
+  PKCE, refresh) with a one-shot loopback callback; tokens stored owner-only in `~/.sniffmcp/oauth/`.
+  Stored logins are reused by `scan`, `fleet` and `watch`, never by the crawler or `--no-launch`.
+- Auth errors now say exactly what to run (`sniffmcp login <url>`).
+
 ## 0.4.1 — 2026-10-09
 
 ### Changed

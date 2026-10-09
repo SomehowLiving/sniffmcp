@@ -137,7 +137,7 @@ async def _probe(db: CrawlDB, ep: dict, timeout: float):
     if ep["transport"] == "sse":
         config["type"] = "sse"
     try:
-        manifest = await fetch_manifest(config, client_name=CLIENT_NAME)
+        manifest = await fetch_manifest(config, client_name=CLIENT_NAME, auth="none")   # never the user's logins
     except ConnectError as e:
         msg = str(e)
         status = ("auth" if msg.startswith("requires authentication") else

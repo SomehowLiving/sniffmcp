@@ -67,6 +67,22 @@ sniffmcp watch --run                            # check every watch on its inter
 sniffmcp crawl run --output reports/crawl.md    # ecosystem crawler (see below)
 ```
 
+### Servers that need a login (OAuth)
+
+About a third of MCP servers require OAuth. Log in once; later scans, `fleet` and `watch` reuse it:
+
+```bash
+sniffmcp login https://mcp.example.com/mcp     # or the name of a server in your client config
+sniffmcp fleet --login                         # log in to each installed server that needs it, one by one
+sniffmcp logins                                # list stored logins
+sniffmcp logout https://mcp.example.com/mcp
+```
+
+SniffMCP registers itself as its own OAuth client (PKCE, a one-shot callback on `127.0.0.1`); it never
+reads your AI client's tokens. Tokens are stored owner-only in `~/.sniffmcp/oauth/` and never printed.
+Scans only *list* tools, prompts and resources; they never call a tool with your login. The crawler and
+`--no-launch`/CI runs never use stored logins.
+
 Exit codes: `0` clean · `1` finding at/above `--fail-on` · `2` bad config · `3` some servers not analysed.
 `--offline` skips OSV lookups.
 
@@ -205,14 +221,15 @@ which is now a rule. Use more than one tool.
 
 ## Known limits
 
-- **OAuth-protected servers can't be scanned yet.** That's about 36% of registry endpoints.
+- **OAuth servers need a one-time `sniffmcp login`.** Servers that don't allow dynamic client
+  registration (or a client metadata document) can't be logged in to by third-party tools; pass a
+  token in `headers` for those.
 - **Manifest only.** We see what a server *says*, not what its handlers *do*. Pair with source scanning for servers you build.
 - **Session-gated payloads evade polling.** A server that turns malicious after N tool calls inside a session shows its clean face to every fresh connection.
 - Heuristics are tuned for precision; a careful attacker can phrase around them.
 
 ## Roadmap
 
-- OAuth support so auth-gated servers can be scanned
 - A public benchmark corpus (known attacks + real-world false positives) any scanner can be measured against
 - Optional LLM second opinion for ambiguous text (the hook exists: `analyze_descriptions(llm_hook=…)`)
 - A session proxy to catch payloads that only appear mid-session
