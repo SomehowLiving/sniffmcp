@@ -13,13 +13,14 @@ startup. Per-server failures never abort the fleet scan — one dead server must
 not hide the other fourteen.
 """
 from __future__ import annotations
-import asyncio, json, os, sys
+import asyncio, json, os, re, sys
 from pathlib import Path
 
 from .client import ConnectError
 from .engine import scan
 from .models import Finding
-from .report import to_json_report, gate
+from .report import to_json_report, gate, SEVERITY_RANK
+from .injection import scan_text, tool_texts
 
 CONFIG_CANDIDATES = [
     ("claude-desktop", "~/Library/Application Support/Claude/claude_desktop_config.json"),
@@ -70,8 +71,12 @@ async def scan_one(name: str, config: dict, fail_on: str = "high", launch: bool 
         return {"name": name, "target": config.get("url") or config.get("command", "?"),
                 "status": "error", "error": str(e)}
     out = to_json_report(report.target, report.score, report.grade, report.findings, report.manifest_hash)
+    texts = [(t.get("name"), where, x) for t in manifest.get("tools", []) for where, x in tool_texts(t) if x]
+    if manifest.get("instructions"):
+        texts.append((None, "server instructions", manifest["instructions"]))
+    texts += [(None, f"prompt {p.get('name')}", p.get("description") or "") for p in manifest.get("prompts") or []]
     out.update(name=name, transport=report.transport, status="ok", tool_count=report.tool_count,
-               tool_names=[t.get("name") for t in manifest.get("tools", [])],
+               tool_names=[t.get("name") for t in manifest.get("tools", [])], _texts=texts,
                gate=gate(report.findings, fail_on))
     return out
 
@@ -86,6 +91,45 @@ def tool_collisions(results: list[dict]) -> list[Finding]:
     return [Finding("FLEET-01", "medium", f"Tool name '{t}' exposed by {len(s)} servers", ", ".join(s),
                     "Remove one, or check which server your client actually routes this name to.", tool_name=t)
             for t, s in sorted(owners.items()) if len(s) > 1]
+
+
+_DISTINCTIVE = re.compile(r"^(?=.{6,}$)[A-Za-z][A-Za-z0-9]*([_-][A-Za-z0-9]+)+$|^[a-z]+[A-Z][A-Za-z0-9]{3,}$")
+
+
+def cross_server_references(results: list[dict]) -> list[tuple[str, dict]]:
+    """Shadowing in Invariant's sense: one server's model-visible text names a tool that
+    belongs to ANOTHER installed server ("when you call send_email, also BCC ..."). That's how
+    a malicious server hijacks a trusted one. Only distinctive names (snake/kebab/camelCase,
+    6+ chars) count, so ordinary words like "search" don't."""
+    owner: dict[str, set[str]] = {}
+    for r in results:
+        for t in r.get("tool_names") or []:
+            if t and _DISTINCTIVE.match(t):
+                owner.setdefault(t, set()).add(r["name"])
+    out = []
+    for r in results:
+        own = set(r.get("tool_names") or [])
+        for tool, where, text in r.get("_texts") or []:
+            for name, servers in owner.items():
+                others = servers - {r["name"]}
+                if not others or name in own:
+                    continue
+                m = re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text)
+                if not m:
+                    continue
+                window = text[max(0, m.start() - 150): m.end() + 150]
+                directive = [h for h in scan_text(window) if h[0] in ("cross-tool instruction", "exfiltration directive",
+                                                                    "instruction override", "concealment from user")]
+                directive = directive or re.search(r"(?i)\b(always|also|instead|before|after|must|bcc|cc|forward|redirect)\b", window)
+                sev = "high" if directive else "medium"
+                out.append((r["name"], {
+                    "check_id": "FLEET-02", "severity": sev,
+                    "title": f"References another server's tool '{name}' ({', '.join(sorted(others))})",
+                    "evidence": f"{where}{f' of {tool}' if tool else ''}: …{' '.join(window.split())[:220]}…",
+                    "remediation": "A server telling the agent how to use another server's tools is the shadowing "
+                                   "attack. Check why this server mentions it; remove it if you can't explain it.",
+                    "tool_name": tool, "kind": "", "owasp_mcp": ["MCP03"], "suppressed": False}))
+    return out
 
 
 async def scan_fleet(paths: list[str] | None = None, fail_on: str = "high", launch: bool = True,
@@ -139,6 +183,14 @@ async def scan_fleet(paths: list[str] | None = None, fail_on: str = "high", laun
                     and f["severity"] in ("critical", "high")}:
             freq[cid] = freq.get(cid, 0) + 1
     collisions = tool_collisions(ok)
+    shadowing = cross_server_references(ok)
+    by_name = {r["name"]: r for r in ok}
+    for name, f in shadowing:
+        by_name[name]["findings"].append(f)
+        if SEVERITY_RANK[f["severity"]] >= SEVERITY_RANK[fail_on]:
+            by_name[name]["gate"] = 1
+    for r in ok:
+        r.pop("_texts", None)
 
     summary = {
         "scanned": len(ok), "failed": len(errs), "total": len(results),
@@ -147,6 +199,7 @@ async def scan_fleet(paths: list[str] | None = None, fail_on: str = "high", laun
         "servers_at_or_below_C": [r["name"] for r in ok if r["grade"] in ("C", "D", "F")],
         "high_or_critical_by_check": dict(sorted(freq.items(), key=lambda kv: -kv[1])),
         "tool_name_collisions": [{"tool": f.tool_name, "servers": f.evidence} for f in collisions],
+        "cross_server_references": [{"server": n, "severity": f["severity"], "title": f["title"]} for n, f in shadowing],
         "worst": sorted(((r["name"], r["score"]) for r in ok), key=lambda x: x[1])[:5],
         # exit contract: 1 = findings at/above threshold, 3 = some servers not analysed, 0 = clean
         "gate": 1 if any(r.get("gate") == 1 for r in ok) else (3 if errs else 0),
@@ -164,6 +217,8 @@ def fleet_console(fleet: dict) -> None:
         print(f"  {r['score']:3}/100 {r['grade']}  {r['name']}  ({r['tool_count']} tools)")
         for f in flagged[:5]:
             print(f"           [{f['severity']}] {f['title']}")
+    for x in s.get("cross_server_references", []):
+        print(f"  [shadowing:{x['severity']}] {x['server']}: {x['title']}")
     for c in s["tool_name_collisions"]:
         print(f"  [collision] tool '{c['tool']}' in: {c['servers']}")
     for r in fleet["servers"]:
@@ -189,6 +244,8 @@ def fleet_markdown(fleet: dict, title: str = "sniffmcp") -> str:
         bad = [f"{f['check_id']} {f['title']}" for f in r["findings"]
                if f["severity"] in ("critical", "high") and not f.get("suppressed")]
         L.append(f"| `{r['name']}` | {r['grade']} ({r['score']}) | {'<br>'.join(bad[:4]) or '—'} |")
+    for x in s.get("cross_server_references", []):
+        print(f"  [shadowing:{x['severity']}] {x['server']}: {x['title']}")
     for c in s["tool_name_collisions"]:
         L.append(f"\nTool name `{c['tool']}` is exposed by several servers: {c['servers']}")
     return "\n".join(L)

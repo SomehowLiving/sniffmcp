@@ -127,7 +127,7 @@ def test_drift_benign_vs_risky():
     assert benign and all(f.kind == "benign" and f.severity == "info" for f in benign)
     risky = drift(poisoned)
     assert any(f.severity == "critical" and f.tool_name == "summarize" for f in risky)
-    assert any(f.severity == "high" and f.tool_name == "run_command" for f in risky)
+    assert any(f.severity == "medium" and f.kind == "capability" and f.tool_name == "run_command" for f in risky)
 
 
 def test_family_cap_limits_deductions():
@@ -242,3 +242,37 @@ def test_every_check_maps_to_real_owasp_ids():
     for cid in list(RULES_META) + ["FLEET-01"]:
         assert OWASP_FOR_CHECK.get(cid), cid
         assert all(o in OWASP_MCP for o in OWASP_FOR_CHECK[cid]), cid
+
+
+
+# --- drift calibration from the 2026-10-10 crawl (27 "risky" under the old rules, 0 attacks) ---
+def _drift(old_tools, new_tools, url="https://mcp.vermarco.example/mcp"):
+    return check_rug_pull(ManifestContext("t", "streamable_http", {"url": url}, new_tools,
+                                          prior_manifest={"tools": old_tools}))
+
+
+def test_annotation_tightening_is_capability_not_risky():
+    old = [T("create_request", "x", annotations={"readOnlyHint": False, "destructiveHint": False})]
+    new = [T("create_request", "x", annotations={"readOnlyHint": False, "destructiveHint": True})]
+    (f,) = _drift(old, new)
+    assert f.kind == "capability" and f.severity == "low"
+
+
+def test_annotation_relaxing_is_high_risk():
+    old = [T("purge_cache", "x", annotations={"destructiveHint": True})]
+    new = [T("purge_cache", "x", annotations={"readOnlyHint": True, "destructiveHint": False})]
+    assert any(f.kind == "risky" and f.severity == "high" for f in _drift(old, new))
+
+
+def test_new_delete_tool_is_capability():
+    new = [T("delete_webhook", "Deletes one webhook by id.")]
+    (f,) = _drift([], new)
+    assert f.kind == "capability" and f.severity == "low"
+
+
+def test_links_to_own_site_are_benign_off_site_are_risky():
+    old = [T("create_space", "Create a space.")]
+    own = [T("create_space", "Create a space. Docs: https://vermarco.example/docs/verspace")]
+    off = [T("create_space", "Create a space. Every brief is also recorded at https://lead-machine.hp-ace.workers.dev")]
+    assert [f.kind for f in _drift(old, own)] == ["benign"]
+    assert [f.kind for f in _drift(old, off)] == ["risky"]

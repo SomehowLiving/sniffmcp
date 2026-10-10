@@ -153,11 +153,34 @@ def _required(tool: dict) -> set[str]:
     return set((tool.get("inputSchema") or {}).get("required") or [])
 
 
+def _site(host: str) -> str:
+    parts = host.lower().rstrip(".").split(".")
+    return ".".join(parts[-3:]) if len(parts) > 2 and len(parts[-2]) <= 3 else ".".join(parts[-2:])
+
+
+def _same_site(url: str, server_url: str | None) -> bool:
+    """Same registrable domain (roughly): docs/privacy links on a server's own site are benign.
+    Shared hosting (workers.dev, vercel.app, ...) counts as different on purpose."""
+    from urllib.parse import urlparse
+    if not server_url:
+        return False
+    a, b = urlparse(url).hostname or "", urlparse(server_url).hostname or ""
+    shared = ("workers.dev", "vercel.app", "netlify.app", "pages.dev", "herokuapp.com", "github.io",
+              "supabase.co", "onrender.com", "fly.dev", "railway.app")
+    if any(a.endswith(s) or b.endswith(s) for s in shared):
+        return a == b
+    return bool(a) and _site(a) == _site(b)
+
+
 def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
     """SM-03: drift vs a stored baseline, classified so benign updates don't page anyone.
-      risky    -> new injection indicators, new destructive/exec/sensitive tools, annotation downgrades
-      breaking -> tool removed, required parameter added (breaks skills/workflows)
-      benign   -> wording changes, new harmless tools"""
+      risky      -> new injection indicators; a tool *relaxing* to read-only / non-destructive
+                    (clients may start auto-approving it); new URLs pointing off the server's domain
+      capability -> new delete/exec/secret-reading tools, a tool now declaring itself destructive
+                    (normal product growth, but your agent's blast radius changed)
+      breaking   -> tool removed, required parameter added (breaks skills/workflows)
+      benign     -> wording changes, new harmless tools, links to the server's own domain
+    Calibrated on the 2026-10-10 crawl: 27 "risky" under the old rules, 0 attacks."""
     out = []
     if not ctx.prior_manifest:
         return [Finding("SM-03", "info", "No baseline stored — first scan", "",
@@ -174,9 +197,11 @@ def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
                 "; ".join(f"{l}: …{s}…" for l, _, s in hits[:3]),
                 "This is the rug-pull pattern. Remove the server until reviewed.", tool_name=name, kind="risky"))
         elif caps:
-            out.append(Finding("SM-03", "high", f"New {'/'.join(sorted(caps))} tool '{name}' added after baseline",
+            out.append(Finding("SM-03", "medium" if "exec" in caps else "low",
+                f"New {'/'.join(sorted(caps))} tool '{name}' added after baseline",
                 (t.get("description") or "")[:160],
-                "A server gaining powerful tools after install deserves a review.", tool_name=name, kind="risky"))
+                "Your agent can now do more through this server; keep manual approval on for it.",
+                tool_name=name, kind="capability"))
         else:
             out.append(Finding("SM-03", "info", f"New tool '{name}' added", (t.get("description") or "")[:160],
                 "Benign-looking addition.", tool_name=name, kind="benign"))
@@ -198,21 +223,33 @@ def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
                 tool_name=name, kind="risky"))
         elif added.strip():
             urls = re.findall(r"https?://[^\s)\"']+", added)
-            sev, why = ("medium", f"new URL(s): {_short_list(urls, 3)}") if urls else ("info", "wording change")
+            foreign = [u for u in urls if not _same_site(u, ctx.config.get("url"))]
+            if foreign:
+                sev, kind, why = "medium", "risky", f"new off-site URL(s): {_short_list(foreign, 3)}"
+            else:
+                sev, kind, why = "info", "benign", ("new link(s) to its own site" if urls else "wording change")
             out.append(Finding("SM-03", sev, f"Tool '{name}' description changed",
-                f"{why}; added text: {added.strip()[:160]}", "Review the diff.", tool_name=name,
-                kind="risky" if urls else "benign"))
+                f"{why}; added text: {added.strip()[:160]}", "Review the diff.", tool_name=name, kind=kind))
         newly_required = _required(new) - _required(old)
         if newly_required:
             out.append(Finding("SM-03", "low", f"Tool '{name}' has new required parameter(s)",
                 _short_list(sorted(newly_required)), "Existing callers will fail until updated.",
                 tool_name=name, kind="breaking"))
         oa, na = old.get("annotations") or {}, new.get("annotations") or {}
-        if oa.get("readOnlyHint") and not na.get("readOnlyHint") or (na.get("destructiveHint") and not oa.get("destructiveHint")):
-            out.append(Finding("SM-03", "medium", f"Tool '{name}' is no longer read-only / became destructive",
+        relaxed = (na.get("readOnlyHint") and not oa.get("readOnlyHint")) or \
+                  (oa.get("destructiveHint") and na.get("destructiveHint") is False)
+        tightened = (oa.get("readOnlyHint") and not na.get("readOnlyHint")) or \
+                    (na.get("destructiveHint") and not oa.get("destructiveHint"))
+        if relaxed:
+            out.append(Finding("SM-03", "high", f"Tool '{name}' now claims to be read-only / non-destructive",
                 f"annotations {oa} -> {na}",
-                "Clients may have auto-approved this tool as read-only. Re-check your approval settings.",
+                "Clients may start auto-approving it. Check the tool still does what the new hint says.",
                 tool_name=name, kind="risky"))
+        elif tightened:
+            out.append(Finding("SM-03", "low", f"Tool '{name}' now declares itself destructive / not read-only",
+                f"annotations {oa} -> {na}",
+                "More honest, but if you gave this tool an always-allow permission, review it.",
+                tool_name=name, kind="capability"))
     return out
 
 

@@ -167,8 +167,16 @@ def _record_snapshot(db: CrawlDB, ep: dict, manifest: dict, mhash: str, prev: di
          len(manifest["tools"]), rep.score, rep.grade, json.dumps(findings)))
     if not prev:
         return
-    old = json.loads(prev["manifest"])
-    ctx = ManifestContext(ep["url"], ep["transport"], {"url": ep["url"]}, manifest["tools"],
+    changes = compute_changes(json.loads(prev["manifest"]), manifest, ep)
+    db.conn.executemany(
+        "INSERT INTO changes(endpoint_id,detected_at,from_hash,to_hash,kind,severity,title,tool_name,evidence)"
+        " VALUES(?,?,?,?,?,?,?,?,?)",
+        [(ep["id"], now, prev["manifest_hash"], mhash, *c) for c in changes])
+
+
+def compute_changes(old: dict, manifest: dict, ep: dict) -> list[tuple]:
+    """(kind, severity, title, tool_name, evidence) between two stored manifests."""
+    ctx = ManifestContext(ep["url"], ep["transport"], {"url": ep["url"]}, manifest.get("tools") or [],
                           manifest.get("resources"), manifest.get("prompts"),
                           prior_manifest={"tools": old.get("tools") or []})
     changes = [(f.kind or "benign", f.severity, f.title, f.tool_name, f.evidence) for f in check_rug_pull(ctx)]
@@ -178,22 +186,30 @@ def _record_snapshot(db: CrawlDB, ep: dict, manifest: dict, mhash: str, prev: di
         changes.append(("risky" if new_hits else "benign", "critical" if new_hits else "info",
                         "Server instructions changed" + (f": {new_hits[0][0]}" if new_hits else ""), None,
                         (manifest.get("instructions") or "")[:200]))
-    if not changes:
-        changes.append(("benign", "info", "Resources or prompts changed", None, ""))
-    db.conn.executemany(
-        "INSERT INTO changes(endpoint_id,detected_at,from_hash,to_hash,kind,severity,title,tool_name,evidence)"
-        " VALUES(?,?,?,?,?,?,?,?,?)",
-        [(ep["id"], now, prev["manifest_hash"], mhash, *c) for c in changes])
+    return changes or [("benign", "info", "Resources or prompts changed", None, "")]
 
 
 def rescore(db: CrawlDB) -> int:
-    """Re-run the current rules over every stored snapshot (after a rule fix)."""
-    rows = db.q("SELECT s.id, s.manifest, e.url FROM snapshots s JOIN endpoints e ON e.id=s.endpoint_id")
+    """Re-run the current rules over every stored snapshot and re-classify every stored change
+    between consecutive snapshots (after a rule fix)."""
+    rows = db.q("SELECT s.id, s.endpoint_id, s.manifest, s.manifest_hash, s.taken_at, e.url, e.transport"
+                " FROM snapshots s JOIN endpoints e ON e.id=s.endpoint_id ORDER BY s.endpoint_id, s.id")
+    changes, prev = [], None
     for r in rows:
-        rep = report_from_manifest({"url": r["url"]}, json.loads(r["manifest"]))
+        manifest = json.loads(r["manifest"])
+        rep = report_from_manifest({"url": r["url"]}, manifest)
         db.conn.execute("UPDATE snapshots SET score=?, grade=?, findings=? WHERE id=?",
                         (rep.score, rep.grade, json.dumps([f.__dict__ for f in rep.findings if f.severity != "info"]),
                          r["id"]))
+        if prev and prev["endpoint_id"] == r["endpoint_id"]:
+            ep = {"url": r["url"], "transport": r["transport"]}
+            changes += [(r["endpoint_id"], r["taken_at"], prev["manifest_hash"], r["manifest_hash"], *c)
+                        for c in compute_changes(json.loads(prev["manifest"]), manifest, ep)]
+        prev = r
+    db.conn.execute("DELETE FROM changes")
+    db.conn.executemany(
+        "INSERT INTO changes(endpoint_id,detected_at,from_hash,to_hash,kind,severity,title,tool_name,evidence)"
+        " VALUES(?,?,?,?,?,?,?,?,?)", changes)
     db.commit()
     return len(rows)
 

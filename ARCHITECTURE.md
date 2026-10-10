@@ -286,7 +286,7 @@ Which public standards, threat research and data feeds sniffmcp builds on, and w
 |---|---|---|---|
 | MCP01 | Token Mismanagement & Secret Exposure | SM-02, SM-05 | 🟢 config secrets, redaction |
 | MCP02 | Privilege Escalation via Scope Creep | SM-04 | 🟡 capabilities only; we can't see token scopes |
-| MCP03 | Tool Poisoning | INJ-HEUR, SM-01, SM-03, SM-08, SM-09, FLEET-01 | 🟢 our strongest area |
+| MCP03 | Tool Poisoning | INJ-HEUR, SM-01, SM-03, SM-08, SM-09, FLEET-01, FLEET-02 | 🟢 our strongest area |
 | MCP04 | Supply Chain & Dependency Tampering | SM-07, SM-10, **SM-11 (malware), SM-12 (CVEs)**, crawler package signals | 🟢 pinning, provenance, OSV malware + vulnerabilities |
 | MCP05 | Command Injection & Execution | SM-04 (flags exec tools) | 🔴 we can't see handler code |
 | MCP06 | Intent Flow Subversion | INJ-HEUR, SM-01 | 🟡 text only |

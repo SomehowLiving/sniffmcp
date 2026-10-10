@@ -35,7 +35,7 @@ async def test_watch_detects_rug_pull(tmp_path):
     store.add_watch("notes", cfg("rugpull"), "stdio", 0)
     findings = await watcher.check_watch(store, store.get_watch("notes"))
     assert any(f.severity == "critical" and f.tool_name == "summarize" for f in findings)
-    assert any(f.tool_name == "run_command" and f.kind == "risky" for f in findings)
+    assert any(f.tool_name == "run_command" and f.kind == "capability" for f in findings)
     n_alerts = len(store.alerts())
 
     await watcher.check_watch(store, store.get_watch("notes"))   # same bad version again

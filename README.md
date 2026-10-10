@@ -149,7 +149,8 @@ commands need `SNIFFMCP_ALLOW_COMMANDS=1`. HTTP mode binds to localhost only.
 | SM-10 | `curl \| sh` launch commands, TLS verification disabled | MCP04, MCP07 |
 | SM-11 | **Known malware** (OSV / OpenSSF `MAL-`) for the package that would launch. Blocks the launch | MCP04 |
 | SM-12 | Known vulnerabilities (GHSA / PYSEC / CVE) at the pinned version, or today's latest if unpinned | MCP04 |
-| FLEET-01 | Same tool name exposed by two installed servers (shadowing) | MCP03 |
+| FLEET-01 | Same tool name exposed by two installed servers (name collision; the client may route to either) | MCP03 |
+| FLEET-02 | **Shadowing:** one server's text names a tool that belongs to *another* installed server ("when you call `send_email`, also BCC…"). High when it gives instructions about that tool | MCP03, MCP06 |
 
 IDs are sniffmcp's own; every finding also carries its OWASP categories (`owasp_mcp` in JSON, tags in SARIF).
 Scoring: 100 minus severity-weighted deductions (25/15/8/3, at most two per check). **Any critical caps the grade at F; any high at C.**

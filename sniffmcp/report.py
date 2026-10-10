@@ -24,6 +24,8 @@ RULES_META = {
     "SM-10": ("Config hygiene", "Launch command pipes a download into a shell, or TLS verification is disabled.", "High"),
     "SM-11": ("Known malicious package", "OSV / OpenSSF malicious-packages advisory (MAL-) for the launched package.", "Critical"),
     "SM-12": ("Known vulnerability", "OSV advisory (GHSA / PYSEC / CVE) for the launched package version.", "High"),
+    "FLEET-01": ("Tool name collision", "The same tool name is exposed by two installed servers; the client may route to either.", "Medium"),
+    "FLEET-02": ("Cross-server tool reference (shadowing)", "One server's text names a tool belonging to another installed server.", "High"),
     "INJ-HEUR": ("Injection indicator", "Injection pattern in a tool description, title, or parameter description.", "High"),
     "INJ-LLM":  ("LLM-flagged description", "LLM second-opinion flagged a tool description.", "Medium"),
 }
@@ -48,7 +50,7 @@ OWASP_FOR_CHECK = {
     "SM-01": ["MCP03", "MCP06"], "SM-02": ["MCP01"], "SM-03": ["MCP03", "MCP04"],
     "SM-04": ["MCP02", "MCP05"], "SM-05": ["MCP10", "MCP01"], "SM-06": ["MCP07"],
     "SM-07": ["MCP04"], "SM-08": ["MCP03"], "SM-09": ["MCP03"], "SM-10": ["MCP04", "MCP07"],
-    "SM-11": ["MCP04"], "SM-12": ["MCP04"], "FLEET-01": ["MCP03"],
+    "SM-11": ["MCP04"], "SM-12": ["MCP04"], "FLEET-01": ["MCP03"], "FLEET-02": ["MCP03", "MCP06"],
 }
 
 REPORT_SCHEMA = "sniffmcp/report@3.0.0"   # 3.0: project renamed; check IDs MA-xx -> SM-xx
