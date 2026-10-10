@@ -93,7 +93,11 @@ class FileTokenStorage(TokenStorage):
         return self._read().get("callback_port")
 
     def set_callback_port(self, port: int) -> None:
+        """New callback port. The old client registration names the old redirect URI,
+        so it is dropped and the SDK registers again."""
         data = self._read()
+        if data.get("callback_port") not in (None, port):
+            data.pop("client_info", None)
         data["callback_port"] = port
         self._write(data)
 
@@ -105,8 +109,54 @@ class FileTokenStorage(TokenStorage):
             return False
 
 
+# Callback ports come from below both Linux's ephemeral range (32768+) and Windows' dynamic range
+# (49152+), where Hyper-V/WSL reserve port blocks. On WSL a reserved port can never be forwarded
+# from the Windows browser ("127.0.0.1 refused to connect"), so those are skipped explicitly.
+PORT_RANGE = (20000, 32767)
+NETSH = "/mnt/c/Windows/System32/netsh.exe"
+
+
+def parse_excluded_ranges(text: str) -> list[tuple[int, int]]:
+    """Ranges from `netsh interface ipv4 show excludedportrange protocol=tcp`."""
+    return [(int(a), int(b)) for a, b in re.findall(r"^\s*(\d+)\s+(\d+)", text, re.M)]
+
+
+_excluded_cache: list[tuple[int, int]] | None = None
+
+
+def windows_excluded_ranges() -> list[tuple[int, int]]:
+    """TCP port ranges Windows has reserved (only meaningful on WSL; empty elsewhere)."""
+    global _excluded_cache
+    if _excluded_cache is None:
+        _excluded_cache = []
+        if _is_wsl() and os.path.exists(NETSH):
+            import subprocess
+            try:
+                out = subprocess.run([NETSH, "interface", "ipv4", "show", "excludedportrange", "protocol=tcp"],
+                                     capture_output=True, text=True, timeout=10).stdout
+                _excluded_cache = parse_excluded_ranges(out)
+            except Exception:
+                pass
+    return _excluded_cache
+
+
+def port_unusable(port: int) -> bool:
+    return any(lo <= port <= hi for lo, hi in windows_excluded_ranges())
+
+
 def _free_port() -> int:
-    with socket.socket() as s:
+    import random
+    for _ in range(200):
+        port = random.randint(*PORT_RANGE)
+        if port_unusable(port):
+            continue
+        with socket.socket() as s:
+            try:
+                s.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+        return port
+    with socket.socket() as s:   # extremely unlikely fallback
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
@@ -220,7 +270,7 @@ def auth_for(server_url: str, interactive: bool = False, open_url=None) -> OAuth
     if not interactive and not storage.has_tokens():
         return None
     port = storage.callback_port()
-    if port is None:
+    if port is None or (interactive and port_unusable(port)):
         port = _free_port()
         storage.set_callback_port(port)
     callback = LoopbackCallback(port, server_url)

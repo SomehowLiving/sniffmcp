@@ -145,3 +145,40 @@ def test_scope_override(monkeypatch):
     assert oauth.read_only_scopes("a.read a.write") == "a.read a.write"
     monkeypatch.setenv("SNIFFMCP_OAUTH_SCOPE", "x.read")
     assert oauth.read_only_scopes("a.read a.write") == "x.read"
+
+
+NETSH_SAMPLE = """
+Protocol tcp Port Exclusion Ranges
+
+Start Port    End Port
+----------    --------
+     49720       49819
+     49820       49919
+     50000       50059     *
+
+* - Administered port exclusions.
+"""   # real output from a WSL machine, 2026-10-10
+
+
+def test_parse_windows_excluded_ranges():
+    assert oauth.parse_excluded_ranges(NETSH_SAMPLE) == [(49720, 49819), (49820, 49919), (50000, 50059)]
+
+
+def test_callback_port_avoids_reserved_ranges(monkeypatch):
+    monkeypatch.setattr(oauth, "_excluded_cache", [(20000, 32000)])
+    for _ in range(20):
+        p = oauth._free_port()
+        assert 32001 <= p <= 32767 and not oauth.port_unusable(p)
+
+
+def test_reserved_stored_port_triggers_reregistration(tmp_path, monkeypatch):
+    monkeypatch.setenv("SNIFFMCP_HOME", str(tmp_path))
+    url = "https://mcp.example.com/mcp"
+    st = oauth.FileTokenStorage(url)
+    st.set_callback_port(49821)
+    st._write({**st._read(), "client_info": {"client_id": "old", "redirect_uris": ["http://127.0.0.1:49821/callback"]}})
+    monkeypatch.setattr(oauth, "_excluded_cache", [(49820, 49919)])   # the user's real reserved block
+    oauth.auth_for(url, interactive=True)
+    new = oauth.FileTokenStorage(url)
+    assert new.callback_port() != 49821 and not oauth.port_unusable(new.callback_port())
+    assert "client_info" not in new._read()   # old registration (old redirect URI) dropped

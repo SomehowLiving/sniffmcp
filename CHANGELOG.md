@@ -3,9 +3,11 @@
 ## 0.5.1 — unreleased
 
 ### Fixed
-- OAuth login on WSL: wait for WSL's localhost forwarding before opening the browser. Servers that
-  skip the consent screen (already approved) redirected back before Windows could reach the
-  listener ("127.0.0.1 refused to connect").
+- OAuth login on WSL could fail with "127.0.0.1 refused to connect": the random callback port could
+  land in a range Windows reserves (Hyper-V/WSL), which can never be forwarded from the Windows
+  browser. Callback ports now come from 20000–32767, skip Windows' reserved ranges on WSL, and a
+  stored login whose port is reserved re-registers on a new one. Also waits briefly for WSL's
+  localhost forwarding before opening the browser.
 
 ## 0.5.0 — 2026-10-10
 
