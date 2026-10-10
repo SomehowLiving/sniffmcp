@@ -20,6 +20,7 @@ from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 from . import __version__
+from .pages import error_page, http_response, success_page
 
 LOGIN_TIMEOUT = 300   # seconds to finish the browser login
 CALLBACK_PATH = "/callback"
@@ -102,16 +103,12 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-_DONE_PAGE = (b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
-              b"<!doctype html><title>SniffMCP</title><body style='font-family:sans-serif;padding:3em'>"
-              b"<h2>&#x1F575;&#xFE0F; SniffMCP: login complete</h2><p>You can close this tab.</p></body>")
-
-
 class LoopbackCallback:
     """One-shot listener for the OAuth redirect on 127.0.0.1:<port>/callback."""
 
-    def __init__(self, port: int):
+    def __init__(self, port: int, server_url: str | None = None):
         self.port = port
+        self.server_url = server_url
         self.redirect_uri = f"http://127.0.0.1:{port}{CALLBACK_PATH}"
         self._result: asyncio.Future | None = None
         self._server: asyncio.base_events.Server | None = None
@@ -136,13 +133,15 @@ class LoopbackCallback:
             if "error" in q:
                 self._result.set_exception(RuntimeError(
                     f"authorization refused: {q.get('error')} {q.get('error_description', '')}".strip()))
+                writer.write(http_response("200 OK", error_page(q["error"], q.get("error_description"),
+                                                                self.server_url)))
             elif "code" in q:
                 self._result.set_result(AuthorizationCodeResult(code=q["code"], state=q.get("state"),
                                                                 iss=q.get("iss")))
+                writer.write(http_response("200 OK", success_page(self.server_url)))
             else:
-                writer.write(b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n")
-                return
-            writer.write(_DONE_PAGE)
+                writer.write(http_response("400 Bad Request", error_page(
+                    "missing_code", "The redirect had no authorization code.", self.server_url)))
         except Exception:
             pass
         finally:
@@ -216,7 +215,7 @@ def auth_for(server_url: str, interactive: bool = False, open_url=None) -> OAuth
     if port is None:
         port = _free_port()
         storage.set_callback_port(port)
-    callback = LoopbackCallback(port)
+    callback = LoopbackCallback(port, server_url)
 
     async def redirect_handler(url: str) -> None:
         if not interactive:

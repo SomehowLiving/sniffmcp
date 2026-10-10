@@ -107,7 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: SomehowLiving/sniffmcp@v0.4.1
+      - uses: SomehowLiving/sniffmcp@v0.5.0
         with:
           config: .mcp.json .cursor/mcp.json
           fail-on: high

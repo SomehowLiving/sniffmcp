@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 — unreleased
+## 0.5.0 — 2026-10-10
 
 ### Added
 - **OAuth login** for servers that require it: `sniffmcp login`, `logout`, `logins`, and
@@ -8,6 +8,9 @@
   PKCE, refresh) with a one-shot loopback callback; tokens stored owner-only in `~/.sniffmcp/oauth/`.
   Stored logins are reused by `scan`, `fleet` and `watch`, never by the crawler or `--no-launch`.
 - Auth errors now say exactly what to run (`sniffmcp login <url>`).
+- Requests **read-only OAuth scopes** (a scanner only lists tools); `SNIFFMCP_OAUTH_SCOPE` overrides.
+- Branded login pages with the SniffMCP raccoon (success and failure), self-contained and hardened
+  (no scripts, escaped input, no referrer). A refused login no longer shows "login complete".
 
 ## 0.4.1 — 2026-10-09
 

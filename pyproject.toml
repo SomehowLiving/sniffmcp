@@ -1,6 +1,6 @@
 [project]
 name = "sniffmcp-cli"   # PyPI name; brand, repo, module and command stay "sniffmcp"
-version = "0.4.1"
+version = "0.5.0"
 description = "Sniff out what your AI tools are hiding: local security checks for MCP servers (hidden instructions, known malware, leaked secrets, rug pulls)."
 readme = "README.md"
 license = "Apache-2.0"
@@ -38,6 +38,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["sniffmcp"]
+
+[tool.setuptools.package-data]
+sniffmcp = ["assets/*.png"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

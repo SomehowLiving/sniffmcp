@@ -92,13 +92,27 @@ async def test_logout_forgets_the_login(server, fake_browser):
 
 
 async def test_callback_rejects_wrong_path_and_reports_denial():
-    cb = oauth.LoopbackCallback(_free_port())
+    cb = oauth.LoopbackCallback(_free_port(), "https://mcp.example.com/mcp")
     await cb.start()
     async with httpx2.AsyncClient() as http:
         assert (await http.get(f"http://127.0.0.1:{cb.port}/other?code=x")).status_code == 404
-        await http.get(f"{cb.redirect_uri}?error=access_denied&error_description=user+said+no")
+        r = await http.get(f"{cb.redirect_uri}?error=access_denied"
+                           "&error_description=%3Cscript%3Ealert(1)%3C/script%3E")
+    assert "Login didn't go through" in r.text and "<script>" not in r.text   # escaped, and no script runs
+    assert "script-src" not in r.headers["content-security-policy"] and "default-src 'none'" in r.headers["content-security-policy"]
+    assert r.headers["referrer-policy"] == "no-referrer"
     with pytest.raises(RuntimeError, match="access_denied"):
         await cb.wait()
+
+
+async def test_callback_success_page_shows_mascot_and_server():
+    cb = oauth.LoopbackCallback(_free_port(), "https://mcp.example.com/mcp")
+    await cb.start()
+    async with httpx2.AsyncClient() as http:
+        r = await http.get(f"{cb.redirect_uri}?code=abc&state=xyz")
+    assert r.status_code == 200 and "You're logged in" in r.text
+    assert "mcp.example.com" in r.text and "data:image/png;base64," in r.text
+    assert (await cb.wait()).code == "abc"
 
 
 def test_only_read_scopes_are_requested():
