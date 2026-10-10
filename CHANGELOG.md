@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.1 — unreleased
+## 0.5.1 — 2026-10-10
 
 ### Fixed
 - OAuth login on WSL could fail with "127.0.0.1 refused to connect": the random callback port could
