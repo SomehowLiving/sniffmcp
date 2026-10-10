@@ -236,8 +236,14 @@ def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
                 _short_list(sorted(newly_required)), "Existing callers will fail until updated.",
                 tool_name=name, kind="breaking"))
         oa, na = old.get("annotations") or {}, new.get("annotations") or {}
-        relaxed = (na.get("readOnlyHint") and not oa.get("readOnlyHint")) or \
-                  (oa.get("destructiveHint") and na.get("destructiveHint") is False)
+        # Risky relaxation = a tool that *explicitly* said it writes/destroys now claims read-only,
+        # or a write/delete/exec-named tool gains a read-only claim. A read-named tool getting its
+        # first annotations ({} -> readOnlyHint) is servers improving (60 such on 2026-10-10).
+        claims_ro = na.get("readOnlyHint") and not oa.get("readOnlyHint")
+        claims_safe = oa.get("destructiveHint") and na.get("destructiveHint") is False
+        explicit_before = oa.get("readOnlyHint") is False or oa.get("destructiveHint") is True
+        powerful_name = bool(tool_capability(new) & {"destructive", "write", "exec"})
+        relaxed = (claims_ro or claims_safe) and (explicit_before or powerful_name)
         tightened = (oa.get("readOnlyHint") and not na.get("readOnlyHint")) or \
                     (na.get("destructiveHint") and not oa.get("destructiveHint"))
         if relaxed:

@@ -276,3 +276,17 @@ def test_links_to_own_site_are_benign_off_site_are_risky():
     off = [T("create_space", "Create a space. Every brief is also recorded at https://lead-machine.hp-ace.workers.dev")]
     assert [f.kind for f in _drift(old, own)] == ["benign"]
     assert [f.kind for f in _drift(old, off)] == ["risky"]
+
+
+
+def test_first_annotations_on_read_tools_are_not_risky():
+    # 60 of these on 2026-10-10: servers adding annotations for the first time
+    old = [T("search_cases", "Search cases.")]
+    new = [T("search_cases", "Search cases.", annotations={"readOnlyHint": True, "destructiveHint": False})]
+    assert not [f for f in _drift(old, new) if f.kind == "risky"]
+
+
+def test_read_only_claim_on_write_named_tool_is_risky():
+    old = [T("delete_record", "Delete a record.")]
+    new = [T("delete_record", "Delete a record.", annotations={"readOnlyHint": True})]
+    assert any(f.kind == "risky" and f.severity == "high" for f in _drift(old, new))
