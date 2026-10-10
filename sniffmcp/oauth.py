@@ -182,6 +182,9 @@ def read_only_scopes(scope: str | None) -> str | None:
     every scope a server advertises (devfolio: profile.write, projects.write, ...). Keeps
     offline_access so stored logins can refresh. If nothing read-like is left, omit the
     scope and let the server apply its default."""
+    override = os.environ.get("SNIFFMCP_OAUTH_SCOPE")
+    if override:   # escape hatch for servers that mishandle partial scopes: "all", or an exact list
+        return scope if override == "all" else override
     if not scope:
         return scope
     kept = [s for s in scope.split() if not WRITE_SCOPE.search(s)]

@@ -119,3 +119,10 @@ async def test_oauth_scan_has_no_missing_credentials_note(server, fake_browser):
     from sniffmcp.engine import scan
     report, _ = await scan({"url": server, "timeout": 15}, auth="interactive")
     assert not any("no client credentials" in f.title for f in report.findings)
+
+
+def test_scope_override(monkeypatch):
+    monkeypatch.setenv("SNIFFMCP_OAUTH_SCOPE", "all")
+    assert oauth.read_only_scopes("a.read a.write") == "a.read a.write"
+    monkeypatch.setenv("SNIFFMCP_OAUTH_SCOPE", "x.read")
+    assert oauth.read_only_scopes("a.read a.write") == "x.read"

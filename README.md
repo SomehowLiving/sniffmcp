@@ -78,7 +78,8 @@ sniffmcp logins                                # list stored logins
 sniffmcp logout https://mcp.example.com/mcp
 ```
 
-SniffMCP registers itself as its own OAuth client (PKCE, a one-shot callback on `127.0.0.1`); it never
+SniffMCP asks only for read scopes (it never calls tools); if a server rejects that, set
+`SNIFFMCP_OAUTH_SCOPE=all` or an exact scope list for that login. It registers itself as its own OAuth client (PKCE, a one-shot callback on `127.0.0.1`); it never
 reads your AI client's tokens. Tokens are stored owner-only in `~/.sniffmcp/oauth/` and never printed.
 Scans only *list* tools, prompts and resources; they never call a tool with your login. The crawler and
 `--no-launch`/CI runs never use stored logins.
