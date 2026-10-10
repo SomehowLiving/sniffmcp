@@ -12,7 +12,7 @@ PKCE, token exchange and refresh, resource validation. This module supplies:
     watch). Stored-only never opens a browser; the crawler and CI never use OAuth at all.
 """
 from __future__ import annotations
-import asyncio, hashlib, json, os, socket, sys, time, webbrowser
+import asyncio, hashlib, json, os, re, socket, sys, time, webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -174,6 +174,34 @@ async def _open_browser(url: str) -> None:
         pass
 
 
+WRITE_SCOPE = re.compile(r"(?i)(write|admin|delete|manage|modify|create|update|edit|full|owner|sudo|\*)")
+
+
+def read_only_scopes(scope: str | None) -> str | None:
+    """A scanner only *lists* tools, so ask for read scopes only. The SDK otherwise requests
+    every scope a server advertises (devfolio: profile.write, projects.write, ...). Keeps
+    offline_access so stored logins can refresh. If nothing read-like is left, omit the
+    scope and let the server apply its default."""
+    if not scope:
+        return scope
+    kept = [s for s in scope.split() if not WRITE_SCOPE.search(s)]
+    return " ".join(kept) if [s for s in kept if s != "offline_access"] else None
+
+
+class ReadOnlyClientMetadata(OAuthClientMetadata):
+    """Client metadata whose scope can only ever hold read scopes, however the SDK sets it
+    (initial selection, WWW-Authenticate challenge, or step-up)."""
+
+    def __init__(self, **data):
+        data["scope"] = read_only_scopes(data.get("scope"))
+        super().__init__(**data)
+
+    def __setattr__(self, name, value):
+        if name == "scope":
+            value = read_only_scopes(value)
+        super().__setattr__(name, value)
+
+
 def auth_for(server_url: str, interactive: bool = False, open_url=None) -> OAuthClientProvider | None:
     """OAuth provider for server_url.
     interactive=False: only if tokens are already stored (refresh works; no browser ever).
@@ -196,7 +224,7 @@ def auth_for(server_url: str, interactive: bool = False, open_url=None) -> OAuth
     async def callback_handler() -> AuthorizationCodeResult:
         return await callback.wait()
 
-    metadata = OAuthClientMetadata(
+    metadata = ReadOnlyClientMetadata(
         client_name="SniffMCP", client_uri="https://pypi.org/project/sniffmcp-cli/",
         software_id="sniffmcp", software_version=__version__,
         redirect_uris=[callback.redirect_uri], token_endpoint_auth_method="none")

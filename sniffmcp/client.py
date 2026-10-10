@@ -95,6 +95,13 @@ def _auth(config: dict, url: str, headers: dict, auth: str):
     return auth_for(url, interactive=(auth == "interactive"))
 
 
+def _uses_oauth(config: dict, auth: str) -> bool:
+    if auth == "none" or any(k.lower() == "authorization" for k in config.get("headers") or {}):
+        return False
+    from .oauth import FileTokenStorage
+    return auth == "interactive" or FileTokenStorage(_expand(config["url"])).has_tokens()
+
+
 def _transport_for(config: dict, errlog, auth: str = "stored"):
     kind = transport_of(config)
     if kind == "stdio":
@@ -130,7 +137,10 @@ async def fetch_manifest(config: dict, client_name: str = "sniffmcp", auth: str 
             with anyio.fail_after(timeout):
                 async with Client(transport, mode="auto", cache=None,
                                   client_info=Implementation(name=client_name, version=__version__)) as client:
-                    return await _collect(client)
+                    manifest = await _collect(client)
+                    if kind != "stdio" and _uses_oauth(config, auth):
+                        manifest["auth"] = "oauth"
+                    return manifest
         except ConnectError:
             raise
         except TimeoutError:

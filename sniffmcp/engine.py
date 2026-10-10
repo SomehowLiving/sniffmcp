@@ -18,6 +18,8 @@ def report_from_manifest(config: dict, manifest: dict, prior: dict | None = None
                          llm_hook=None, extra: list[Finding] | None = None) -> ScanReport:
     tools = manifest.get("tools", [])
     transport = transport_of(config)
+    if manifest.get("auth") == "oauth":
+        config = {**config, "_oauth": True}   # authenticated via a stored login, not headers
     ctx = ManifestContext(target_of(config), transport, config, tools,
                           manifest.get("resources"), manifest.get("prompts"),
                           manifest.get("server_info"), manifest.get("instructions"),

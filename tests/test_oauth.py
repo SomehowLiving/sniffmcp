@@ -99,3 +99,23 @@ async def test_callback_rejects_wrong_path_and_reports_denial():
         await http.get(f"{cb.redirect_uri}?error=access_denied&error_description=user+said+no")
     with pytest.raises(RuntimeError, match="access_denied"):
         await cb.wait()
+
+
+def test_only_read_scopes_are_requested():
+    devfolio = ("profile.read profile.write hackathons.read applications.read applications.write "
+                "teams.read projects.read projects.write offline_access")   # real, 2026-10-10
+    assert oauth.read_only_scopes(devfolio) == (
+        "profile.read hackathons.read applications.read teams.read projects.read offline_access")
+    assert oauth.read_only_scopes("repo:write admin:org") is None          # nothing read-like: omit scope
+    assert oauth.read_only_scopes("offline_access") is None
+    assert oauth.read_only_scopes(None) is None
+    md = oauth.ReadOnlyClientMetadata(redirect_uris=["http://127.0.0.1:1/callback"], scope="a.read a.write")
+    assert md.scope == "a.read"
+    md.scope = "b.read b.admin offline_access"           # how the SDK sets it after discovery
+    assert md.scope == "b.read offline_access"
+
+
+async def test_oauth_scan_has_no_missing_credentials_note(server, fake_browser):
+    from sniffmcp.engine import scan
+    report, _ = await scan({"url": server, "timeout": 15}, auth="interactive")
+    assert not any("no client credentials" in f.title for f in report.findings)

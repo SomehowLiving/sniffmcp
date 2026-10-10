@@ -280,7 +280,7 @@ def check_transport_security(ctx: ManifestContext) -> list[Finding]:
         out.append(Finding("SM-06", "critical" if has_creds else "high",
             "Remote MCP server over plain HTTP" + (" with credentials in headers" if has_creds else ""), url,
             "Tool schemas, results and any credentials travel in cleartext. Use https."))
-    elif url and ctx.transport != "stdio" and not ctx.config.get("headers"):
+    elif url and ctx.transport != "stdio" and not ctx.config.get("headers") and not ctx.config.get("_oauth"):
         out.append(Finding("SM-06", "info", "Remote server with no client credentials configured", url,
             "Fine for public read-only servers; if the client does OAuth, this is expected."))
     return out
