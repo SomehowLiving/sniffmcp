@@ -35,6 +35,11 @@ def server(tmp_path, monkeypatch):
     proc.wait(5)
 
 
+@pytest.fixture(autouse=True)
+def no_wsl_delay(monkeypatch):
+    monkeypatch.setattr(oauth, "WSL_FORWARD_DELAY", 0)
+
+
 @pytest.fixture
 def fake_browser(monkeypatch):
     """Stands in for the user's browser: follows the authorization URL, whose (auto-approving)

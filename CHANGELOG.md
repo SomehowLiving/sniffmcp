@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1 — unreleased
+
+### Fixed
+- OAuth login on WSL: wait for WSL's localhost forwarding before opening the browser. Servers that
+  skip the consent screen (already approved) redirected back before Windows could reach the
+  listener ("127.0.0.1 refused to connect").
+
 ## 0.5.0 — 2026-10-10
 
 ### Added

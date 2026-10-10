@@ -23,6 +23,14 @@ from . import __version__
 from .pages import error_page, http_response, success_page
 
 LOGIN_TIMEOUT = 300   # seconds to finish the browser login
+WSL_FORWARD_DELAY = 2.0
+
+
+def _is_wsl() -> bool:
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except OSError:
+        return False
 CALLBACK_PATH = "/callback"
 
 
@@ -221,6 +229,11 @@ def auth_for(server_url: str, interactive: bool = False, open_url=None) -> OAuth
         if not interactive:
             raise RuntimeError("stored login has expired")
         await callback.start()
+        if _is_wsl():
+            # WSL forwards Windows localhost to Linux only once it notices the new listening port.
+            # A server that skips the consent screen redirects back instantly and would hit a
+            # refused connection, so give the forwarding a moment first.
+            await asyncio.sleep(WSL_FORWARD_DELAY)
         await (open_url or _open_browser)(url)   # looked up at call time (tests replace it)
 
     async def callback_handler() -> AuthorizationCodeResult:
