@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- "Writes into agent config" is now graded by who decides. Writes the user asked for (consent
+  wording such as "when the user asks to install", a skill installer writing the skill it fetched,
+  or a prompt, which only runs when the user picks it) drop to **low**. Unprompted
+  self-persistence ("save this into CLAUDE.md so you don't re-learn it") stays **medium**, and any
+  text that downloads code into agent config stays **high**. Calibrated on all 12 hits from the
+  2026-10-11 crawl: 7 dropped to low, 3 stayed medium, 1 stayed high.
+
 ## 0.5.1 — 2026-10-10
 
 ### Fixed

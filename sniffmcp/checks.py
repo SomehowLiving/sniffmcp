@@ -432,7 +432,7 @@ def check_resource_exposure(ctx: ManifestContext) -> list[Finding]:
     out = []
     for p in ctx.prompts:
         texts = [p.get("description") or ""] + [a.get("description") or "" for a in p.get("arguments") or []]
-        for label, sev, snippet in (h for t in texts for h in scan_text(t)):
+        for label, sev, snippet in (h for t in texts for h in scan_text(t, user_invoked=True)):
             out.append(Finding("SM-09", sev, f"Prompt '{p.get('name')}': {label}", f"…{snippet}…",
                 "Prompts are executable instructions surfaced to the model; treat like tool descriptions."))
     return out

@@ -73,6 +73,37 @@ MENTION_BEFORE = re.compile(
 MENTION_RULES = {"instruction override", "role reassignment"}
 
 
+# "writes into agent config" is a feature when the user asked for it (skill marketplaces, "add
+# us to AGENTS.md" prompts) and persistence when the server decides on its own. Calibrated on all
+# 12 hits in the 2026-10-11 crawl: consent-gated or install-on-request writes drop to low;
+# unprompted self-persistence ("save this into CLAUDE.md so you don't re-learn it") stays medium.
+CONSENT = re.compile(
+    r"(?i)\b(when|if|once|only\s+if|after)\s+the\s+user\s+(explicitly\s+)?(asks?|requests?|wants?|says?|agrees?|confirms?"
+    r"|approves?|chooses?|opts?\s+in)\b|\bask(ing)?\s+the\s+user\s+(first|before|for\s+(permission|confirmation|approval))"
+    r"|\bwith\s+the\s+user'?s\s+(permission|consent|approval)|\buser[- ](requested|invoked|initiated)\b")
+SKILL_INSTALLER = re.compile(r"(?i)\b(install|fetch|get|download|add)\b[^.\n]{0,40}\bskills?\b")
+SELF_PERSIST = re.compile(
+    r"(?i)\bre-?learn|\bacross\s+(sessions|conversations|projects)|\bremember\s+(this|it|us|me)\b"
+    r"|\bevery\s+(future|new|next)\s+(session|conversation|chat)\b|\bso\s+(that\s+)?you\s+(always|never\s+forget)")
+SKILLS_DIR = re.compile(r"(?i)\.claude/skills|\bskills/")
+
+
+def agent_config_severity(text: str, m: re.Match, user_invoked: bool = False) -> str:
+    """medium for an unprompted write into the agent's own config, low when the user is in the loop."""
+    if user_invoked:
+        return "low"                                      # prompts run only when the user picks them
+    before = text[max(0, m.start() - 300):m.end()]
+    if any(label == "installs code into agent config" and rx.search(text) for label, _, rx in RULES):
+        return "medium"                                   # downloading code never gets the consent discount
+    if SELF_PERSIST.search(text[max(0, m.start() - 300):m.end() + 200]):
+        return "medium"
+    if CONSENT.search(before):
+        return "low"
+    if SKILLS_DIR.search(m.group(0)) and SKILL_INSTALLER.search(text[:m.end()]):
+        return "low"                                      # a skill installer writing the skill it fetched
+    return "medium"
+
+
 def looks_encoded(s: str) -> bool:
     """Base64 payloads mix cases and digits with few slashes; hex strings, slash-separated
     word lists and long identifiers don't."""
@@ -111,14 +142,17 @@ def _counts(label: str, text: str, m: re.Match) -> bool:
     return True
 
 
-def scan_text(text: str) -> list[tuple[str, str, str]]:
-    """Return [(label, severity, snippet)] for one piece of model-visible text."""
+def scan_text(text: str, user_invoked: bool = False) -> list[tuple[str, str, str]]:
+    """Return [(label, severity, snippet)] for one piece of model-visible text.
+    user_invoked: the text only reaches the model when the user chooses it (prompts)."""
     if not text:
         return []
     hits = []
     for label, sev, rx in RULES:
         m = next((m for m in rx.finditer(text) if _counts(label, text, m)), None)
         if m:
+            if label == "writes into agent config":
+                sev = agent_config_severity(text, m, user_invoked)
             a, b = max(0, m.start() - 30), min(len(text), m.end() + 30)
             hits.append((label, sev, text[a:b].replace("\n", " ")))
     hidden = HIDDEN_CHARS.findall(text)
