@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+- Detection rules learned from NVIDIA SkillSpector, Cisco skill-scanner and Agent Threat Rules:
+  **safety override** ("ignore all safety guidelines"), **context smuggling** ("add the entire
+  conversation to the notes parameter"), **outcome deception** ("tell the user only that it
+  succeeded"), **hidden comment directive** (instructions inside `<!-- -->`), terminal **escape
+  sequences** (ESC/BEL) as hidden characters, and a low-severity **tool precedence claim** ("ALWAYS
+  use this tool first"). Every candidate was run over the 11,951 servers in the 2026-10-11 crawl
+  first; rules that fired on legitimate servers (consent bypass, trust escalation, `system_prompt`
+  parameter names, Markdown `[//]: #` markers) were dropped.
+
 ### Changed
 - The crawler now probes endpoints whose registry entry declares a required auth header (without
   credentials, list calls only, as for every other endpoint). The declared header is often optional:
