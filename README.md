@@ -210,6 +210,10 @@ A failed stage (e.g. the registry being down) doesn't abort the run, and every r
 sniffmcp crawl status     # health, days covered, gaps, recent runs and which stages failed
 ```
 
+**Without a laptop:** `scripts/github-crawl.yml` runs the same crawl daily on GitHub Actions from
+a private repo you own, storing each day's database as a release there (no access token needed,
+logs stay private, failed runs email you). This is how the reference dataset is collected.
+
 On **WSL**, cron only runs while WSL is open. `scripts/windows-task.xml` is a Task Scheduler template
 that starts the wrapper hidden at logon, every 30 minutes, and daily (waking the PC), and
 `scripts/notify-windows.sh` shows a Windows notification when a crawl fails or goes stale.

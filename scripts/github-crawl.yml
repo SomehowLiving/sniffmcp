@@ -1,0 +1,96 @@
+# Template: copy into .github/workflows/ of a PRIVATE repo you own, create one release there whose
+# asset crawl.db.zst is a starting database (zstd-compressed crawl.db), and enable Actions.
+# Runs the SniffMCP crawl daily with that repo's built-in token: no personal access token needed.
+
+name: crawl
+
+# Daily SniffMCP ecosystem crawl on GitHub's runners, independent of any laptop.
+# Runs inside this PRIVATE repo, so logs and reports stay private and the built-in token can
+# publish the snapshot releases: no personal access token anywhere.
+# Each run: newest snapshot release -> crawl -> new release (crawl.db.zst + report.md); last 14 kept.
+# A failed scheduled run emails the repo owner (GitHub Actions notifications).
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Smoke test: probe/check at most N items (empty = full crawl)"
+        required: false
+        default: ""
+      full_sync:
+        description: "Re-read the whole registry instead of only recent changes"
+        type: boolean
+        default: false
+      code_ref:
+        description: "SniffMCP git ref to run (default: main)"
+        required: false
+        default: "main"
+
+permissions:
+  contents: write   # create snapshot releases in this repo
+
+concurrency:
+  group: crawl
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IN_LIMIT: ${{ inputs.limit }}
+      IN_FULL_SYNC: ${{ inputs.full_sync }}
+    steps:
+      - name: Check out SniffMCP (public)
+        uses: actions/checkout@v4
+        with:
+          repository: SomehowLiving/sniffmcp
+          ref: ${{ inputs.code_ref || 'main' }}
+          path: sniffmcp
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        working-directory: sniffmcp
+        run: uv venv && uv pip install -e .
+
+      - name: Fetch newest snapshot
+        id: fetch
+        run: |
+          mkdir -p data
+          tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName')
+          test -n "$tag" || { echo "::error::no snapshot release to start from"; exit 1; }
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern crawl.db.zst --dir data
+          zstd -d -q data/crawl.db.zst -o data/crawl.db && rm data/crawl.db.zst
+          echo "starting from $tag ($(du -h data/crawl.db | cut -f1))" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Crawl
+        run: |
+          args=(crawl run --db data/crawl.db --quiet --concurrency 16 --output data/report.md)
+          if [ -n "$IN_LIMIT" ]; then args+=(--limit "$IN_LIMIT"); fi
+          if [ "$IN_FULL_SYNC" = "true" ]; then args+=(--full-sync); fi
+          sniffmcp/.venv/bin/sniffmcp "${args[@]}"
+
+      - name: Health
+        if: always() && steps.fetch.outcome == 'success'
+        run: |
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sniffmcp/.venv/bin/sniffmcp crawl status --db data/crawl.db | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save snapshot
+        # also after a partial failure: whatever was collected must not be lost
+        if: always() && steps.fetch.outcome == 'success'
+        run: |
+          zstd -q -10 -T0 data/crawl.db -o crawl.db.zst
+          files=(crawl.db.zst)
+          if [ -f data/report.md ]; then files+=(data/report.md); fi
+          tag="crawl-$(date -u +%F)-run${GITHUB_RUN_ID}"
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" \
+            --notes "Automated crawl snapshot (run ${GITHUB_RUN_ID}, limit='${IN_LIMIT:-full}')." "${files[@]}"
+          echo "saved $tag ($(du -h crawl.db.zst | cut -f1))" | tee -a "$GITHUB_STEP_SUMMARY"
+          # keep the newest 14 snapshots (the database itself carries the full history)
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[14:][] | .tagName' \
+            | xargs -r -n1 gh release delete --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
