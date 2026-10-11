@@ -8,7 +8,8 @@
   or a prompt, which only runs when the user picks it) drop to **low**. Unprompted
   self-persistence ("save this into CLAUDE.md so you don't re-learn it") stays **medium**, and any
   text that downloads code into agent config stays **high**. Calibrated on all 12 hits from the
-  2026-10-11 crawl: 7 dropped to low, 3 stayed medium, 1 stayed high.
+  2026-10-11 crawl (11 scanned; the 12th is in a resource): 6 dropped to low, 4 stayed medium,
+  1 stayed high.
 
 ## 0.5.1 — 2026-10-10
 
