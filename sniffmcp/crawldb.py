@@ -41,6 +41,9 @@ CREATE TABLE IF NOT EXISTS package_advisories(
   ecosystem TEXT, name TEXT, vuln_id TEXT, kind TEXT, severity TEXT, summary TEXT, aliases TEXT,
   affects_latest INTEGER, latest_version TEXT, first_seen REAL, last_seen REAL,
   PRIMARY KEY(ecosystem, name, vuln_id));
+CREATE TABLE IF NOT EXISTS crawl_runs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, started_at REAL, finished_at REAL,
+  status TEXT, stages TEXT);
 CREATE INDEX IF NOT EXISTS probes_ep ON probes(endpoint_id, taken_at);
 CREATE INDEX IF NOT EXISTS snaps_ep ON snapshots(endpoint_id, id);
 """

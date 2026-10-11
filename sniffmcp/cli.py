@@ -135,25 +135,54 @@ async def cmd_crawl(args) -> int:
         if status != "ok" or done % 50 == 0 or done == total:
             print(f"  [{done}/{total}] {status:8} {what[:90]}", file=sys.stderr)
 
-    if args.action in ("sync", "run"):
-        print(f"sync: {await crawler.sync_registry(db)}", file=sys.stderr)
-    if args.action in ("probe", "run"):
-        print(f"probe: {await crawler.probe_remotes(db, concurrency=args.concurrency, min_age_h=args.min_age, limit=args.limit, per_host_cap=args.per_host_cap, progress=progress)}",
-              file=sys.stderr)
-    if args.action in ("packages", "run"):
-        print(f"packages: {await crawler.crawl_packages(db, concurrency=args.concurrency, min_age_h=args.min_age, limit=args.limit, progress=progress)}",
-              file=sys.stderr)
-    if args.action in ("advisories", "run"):
-        print(f"advisories: {await crawler.crawl_advisories(db)}", file=sys.stderr)
+    if args.action == "status":
+        print(crawler.status(db))
+        return 0
+
+    # Each stage runs on its own: a registry outage must not throw away the probes and package
+    # checks (the history), and every run is recorded so gaps and failures are visible later.
+    import time, traceback
+    stages = {
+        "sync": lambda: crawler.sync_registry(db),
+        "probe": lambda: crawler.probe_remotes(db, concurrency=args.concurrency, min_age_h=args.min_age,
+                                               limit=args.limit, per_host_cap=args.per_host_cap, progress=progress),
+        "packages": lambda: crawler.crawl_packages(db, concurrency=args.concurrency, min_age_h=args.min_age,
+                                                   limit=args.limit, progress=progress),
+        "advisories": lambda: crawler.crawl_advisories(db),
+    }
+    wanted = list(stages) if args.action == "run" else [args.action] if args.action in stages else []
+    results, started = {}, time.time()
+    for name in wanted:
+        try:
+            out = await stages[name]()
+            results[name] = {"ok": True, "result": out}
+            print(f"{name}: {out}", file=sys.stderr)
+        except Exception as e:
+            results[name] = {"ok": False, "error": f"{type(e).__name__}: {e}"[:500]}
+            print(f"{name}: FAILED {type(e).__name__}: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
     if args.action == "rescore":
         print(f"rescored {crawler.rescore(db)} snapshots with the current rules", file=sys.stderr)
     if args.action in ("report", "run", "rescore"):
-        md = crawler.report(db, days=args.days)
-        if args.output:
-            Path(args.output).write_text(md)
-            print(f"wrote {args.output}", file=sys.stderr)
-        else:
-            print(md)
+        try:
+            md = crawler.report(db, days=args.days)
+            if args.output:
+                Path(args.output).write_text(md)
+                print(f"wrote {args.output}", file=sys.stderr)
+            else:
+                print(md)
+        except Exception as e:
+            results["report"] = {"ok": False, "error": f"{type(e).__name__}: {e}"[:500]}
+            print(f"report: FAILED {e}", file=sys.stderr)
+    if wanted:
+        failed = [k for k, v in results.items() if not v["ok"]]
+        core_failed = [k for k in failed if k in ("probe", "packages")]
+        status = "ok" if not failed else ("failed" if core_failed else "partial")
+        db.conn.execute("INSERT INTO crawl_runs(action,started_at,finished_at,status,stages) VALUES(?,?,?,?,?)",
+                        (args.action, started, time.time(), status, json.dumps(results, default=str)))
+        db.commit()
+        print(f"run status: {status}" + (f" (failed: {', '.join(failed)})" if failed else ""), file=sys.stderr)
+        return 1 if core_failed else 0
     return 0
 
 
@@ -231,7 +260,7 @@ def main(argv=None) -> int:
                     help="never start stdio servers: config + OSV checks only (use in CI on untrusted configs)")
 
     cr = sub.add_parser("crawl", help="crawl the official MCP registry and snapshot public servers over time")
-    cr.add_argument("action", choices=["sync", "probe", "packages", "advisories", "report", "run", "rescore"],
+    cr.add_argument("action", choices=["sync", "probe", "packages", "advisories", "report", "run", "rescore", "status"],
                     help="run = sync + probe + packages + advisories + report (what a daily cron should call)")
     cr.add_argument("--db", default=None, help="crawl database (default ~/.sniffmcp/crawl.db)")
     cr.add_argument("--limit", type=int, default=None, help="probe/check at most N items")

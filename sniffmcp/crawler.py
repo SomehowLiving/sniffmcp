@@ -353,6 +353,40 @@ async def crawl_advisories(db: CrawlDB) -> dict:
     return {"packages": len(keys), "with_advisories": len(wanted), "with_malware_history": mal}
 
 
+# ---------------------------------------------------------------- status
+def status(db: CrawlDB, days: int = 14) -> str:
+    """Is the history healthy? Last runs, days with no successful crawl, stage failures."""
+    now = time.time()
+    runs = db.q("SELECT * FROM crawl_runs ORDER BY id DESC LIMIT 10")
+    ok_days = {time.strftime("%Y-%m-%d", time.gmtime(r["started_at"]))
+               for r in db.q("SELECT started_at FROM crawl_runs WHERE action='run' AND status!='failed'")}
+    # days before run-tracking existed: count a day as covered if probes happened that day
+    probe_days = {r["d"] for r in db.q(
+        "SELECT DISTINCT strftime('%Y-%m-%d', taken_at, 'unixepoch') AS d FROM probes WHERE taken_at > ?",
+        now - days * DAY)}
+    covered = ok_days | probe_days
+    first = min(covered) if covered else None
+    window = [time.strftime("%Y-%m-%d", time.gmtime(now - i * DAY)) for i in range(days - 1, -1, -1)]
+    window = [d for d in window if first and d >= first]
+    gaps = [d for d in window if d not in covered]
+    last_ok = db.one("SELECT MAX(finished_at) FROM crawl_runs WHERE action='run' AND status!='failed'") \
+        or db.one("SELECT MAX(taken_at) FROM probes")
+    age_h = (now - last_ok) / 3600 if last_ok else None
+    health = "OK" if age_h is not None and age_h < 30 else "STALE"
+    L = [f"crawl health: {health}" + (f" (last successful crawl {age_h:.1f}h ago)" if age_h is not None else " (never)"),
+         f"days covered since {first}: {len(window) - len(gaps)}/{len(window)}"
+         + (f"  gaps: {', '.join(gaps)}" if gaps else "  (no gaps)"), "", "recent runs:"]
+    for r in runs:
+        st = json.loads(r["stages"] or "{}")
+        bad = [k for k, v in st.items() if not v.get("ok")]
+        dur = (r["finished_at"] - r["started_at"]) / 60 if r["finished_at"] else 0
+        L.append(f"  {time.strftime('%Y-%m-%d %H:%M', time.gmtime(r['started_at']))}Z  {r['action']:8} "
+                 f"{r['status']:8} {dur:5.0f} min" + (f"  failed: {', '.join(bad)}" if bad else ""))
+    if not runs:
+        L.append("  (no tracked runs yet)")
+    return "\n".join(L)
+
+
 # ---------------------------------------------------------------- report
 def _cell(s, n=110) -> str:
     s = " ".join(str(s or "").split()).replace("`", "'").replace("|", "/")

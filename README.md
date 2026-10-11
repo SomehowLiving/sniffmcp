@@ -204,6 +204,15 @@ Daily, self-healing (catches up after sleep or shutdown instead of losing the da
 
 `scripts/daily-crawl.sh` crawls only when the last successful crawl is over 20 hours old, never runs
 twice at once, and (with `SNIFFMCP_BACKUP_DIR`) keeps a consistent copy of `crawl.db` for the last 7 days.
+A failed stage (e.g. the registry being down) doesn't abort the run, and every run is recorded:
+
+```bash
+sniffmcp crawl status     # health, days covered, gaps, recent runs and which stages failed
+```
+
+On **WSL**, cron only runs while WSL is open. `scripts/windows-task.xml` is a Task Scheduler template
+that starts the wrapper hidden at logon, every 30 minutes, and daily (waking the PC), and
+`scripts/notify-windows.sh` shows a Windows notification when a crawl fails or goes stale.
 
 ## How it compares
 

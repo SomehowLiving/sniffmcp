@@ -1,0 +1,25 @@
+<!-- Windows Task Scheduler template for the SniffMCP crawl on WSL. Replace the CAPITALS, then in
+     PowerShell:  Register-ScheduledTask -TaskName 'SniffMCP daily crawl' -Xml (Get-Content -Raw task.xml)
+     Runs hidden at logon + every 30 min, and daily at 06:00 (waking the PC if wake timers are allowed:
+     powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP RTCWAKE 1). The wrapper decides whether to crawl. -->
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <LogonTrigger><Enabled>true</Enabled><UserId>COMPUTER\WINDOWS_USER</UserId><Delay>PT2M</Delay>
+      <Repetition><Interval>PT30M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition></LogonTrigger>
+    <CalendarTrigger><Enabled>true</Enabled><StartBoundary>2026-01-01T06:00:00</StartBoundary>
+      <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>
+  </Triggers>
+  <Principals><Principal id="Author"><UserId>COMPUTER\WINDOWS_USER</UserId>
+    <LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <StartWhenAvailable>true</StartWhenAvailable><RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>
+    <WakeToRun>true</WakeToRun><ExecutionTimeLimit>PT4H</ExecutionTimeLimit><Hidden>true</Hidden>
+    <AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author"><Exec>
+    <Command>C:\Windows\System32\conhost.exe</Command>
+    <Arguments>--headless C:\Windows\System32\wsl.exe -d DISTRO -u LINUX_USER -e env SNIFFMCP_BACKUP_DIR=BACKUP_DIR /PATH/TO/sniffmcp/scripts/daily-crawl.sh</Arguments>
+  </Exec></Actions>
+</Task>

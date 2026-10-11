@@ -81,3 +81,35 @@ def test_due_endpoints_caps_per_host_and_rotates():
     due = db.due_endpoints(0, None, per_host_cap=2)
     assert [r["url"] for r in due].count("https://solo.example/mcp") == 1
     assert sum("bulk.example" in r["url"] for r in due) == 2
+
+
+def test_failed_stage_does_not_abort_the_run(tmp_path, monkeypatch):
+    """A registry outage (sync) must not throw away the probes and package history."""
+    import json as _json
+    from sniffmcp import cli, crawler as cr
+    calls = []
+
+    async def boom(db):
+        raise RuntimeError("registry unavailable")
+
+    async def fine(db, **kw):
+        calls.append("ran")
+        return {"probed": 0}
+
+    async def adv(db):
+        return {"packages": 0}
+    monkeypatch.setattr(cr, "sync_registry", boom)
+    monkeypatch.setattr(cr, "probe_remotes", fine)
+    monkeypatch.setattr(cr, "crawl_packages", fine)
+    monkeypatch.setattr(cr, "crawl_advisories", adv)
+    db = tmp_path / "c.db"
+    assert cli.main(["crawl", "run", "--db", str(db), "--output", str(tmp_path / "r.md")]) == 0   # partial, not fatal
+    assert calls == ["ran", "ran"] and (tmp_path / "r.md").exists()
+    run = CrawlDB(str(db)).q("SELECT * FROM crawl_runs")[0]
+    assert run["status"] == "partial" and not _json.loads(run["stages"])["sync"]["ok"]
+
+    async def probe_down(db, **kw):
+        raise OSError("network down")
+    monkeypatch.setattr(cr, "probe_remotes", probe_down)
+    assert cli.main(["crawl", "run", "--db", str(db)]) == 1        # core stage failed -> retry later
+    assert "failed" in cr.status(CrawlDB(str(db)))
