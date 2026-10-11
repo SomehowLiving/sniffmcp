@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Changed
+- The crawler now probes endpoints whose registry entry declares a required auth header (without
+  credentials, list calls only, as for every other endpoint). The declared header is often optional:
+  in a 300-endpoint trial on 2026-10-11, 95 (32%) served their tools without it and were never
+  scanned before. Endpoints that do answer 401/403 are re-checked weekly instead of daily. The
+  status report adds "declared auth in the registry but answered without it".
 - "Writes into agent config" is now graded by who decides. Writes the user asked for (consent
   wording such as "when the user asks to install", a skill installer writing the skill it fetched,
   or a prompt, which only runs when the user picks it) drop to **low**. Unprompted

@@ -6,8 +6,9 @@ Rules this crawler keeps:
     localhost, a LAN range or cloud metadata must not turn this into an SSRF tool.
   - Only list calls (tools/resources/prompts). Never calls a tool.
   - At most one probe per endpoint per --min-age hours; at most 2 concurrent per host.
-  - Endpoints whose registry entry declares a required auth header are recorded,
-    not probed (a guaranteed 401 every day helps nobody).
+  - Endpoints whose registry entry declares a required auth header are probed without
+    credentials too (the header is often optional); once they answer 401/403 they are
+    re-checked weekly, not daily.
   - Packages are never downloaded or executed: npm/PyPI metadata only.
   - Stores facts (what changed, when). Verdicts stay in local reports.
 """
@@ -91,7 +92,7 @@ def _ingest(db: CrawlDB, entry: dict, now: float) -> None:
         url = rem.get("url") or ""
         transport = "sse" if rem.get("type") == "sse" else "streamable_http"
         auth = any(h.get("isRequired") for h in rem.get("headers") or [])
-        skip = ("templated-url" if "{" in url else "auth-declared" if auth
+        skip = ("templated-url" if "{" in url
                 else None if url.startswith(("https://", "http://")) else "bad-url")
         db.upsert_endpoint(url, transport, s["name"], auth, skip, now)
     for pkg in s.get("packages") or []:
@@ -479,7 +480,7 @@ def report(db: CrawlDB, days: int = 7) -> str:
 
     skip = Counter({r["skip_reason"] or "probed": r["n"] for r in
                     db.q("SELECT skip_reason, COUNT(*) n FROM endpoints GROUP BY skip_reason")})
-    latest = db.q("SELECT p.status, p.error, e.url, e.server_name, e.id FROM probes p JOIN endpoints e ON e.id=p.endpoint_id"
+    latest = db.q("SELECT p.status, p.error, e.url, e.server_name, e.id, e.auth_declared FROM probes p JOIN endpoints e ON e.id=p.endpoint_id"
                   " WHERE p.id=(SELECT MAX(id) FROM probes WHERE endpoint_id=p.endpoint_id)")
     st = Counter(r["status"] for r in latest)
     n_ep, n_probed = sum(skip.values()), len(latest)
@@ -491,7 +492,13 @@ def report(db: CrawlDB, days: int = 7) -> str:
           + ", ".join(f"{k} {v}" for k, v in st.most_common()),
           f"- **require auth: {auth_total} of {known} known ({_pct(auth_total, known)})** "
           f"(declared in registry {skip.get('auth-declared', 0)}, 401/403 on probe {st.get('auth', 0)})",
-          f"- **openly scannable: {st.get('ok', 0)} of {n_probed} probed ({_pct(st.get('ok', 0), n_probed)})**", ""]
+          f"- **openly scannable: {st.get('ok', 0)} of {n_probed} probed ({_pct(st.get('ok', 0), n_probed)})**"]
+    decl = [r for r in latest if r["auth_declared"]]
+    if decl:
+        open_decl = sum(r["status"] == "ok" for r in decl)
+        L += [f"- declared auth in the registry but answered without it: {open_decl} of {len(decl)} probed "
+              f"({_pct(open_decl, len(decl))})"]
+    L += [""]
 
     ok_ids = [r["id"] for r in latest if r["status"] == "ok"]
     snaps = [db.last_snapshot(i) for i in ok_ids]

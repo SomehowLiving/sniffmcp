@@ -24,10 +24,26 @@ def test_ingest_classifies_endpoints():
                      {"registryType": "oci", "identifier": "ghcr.io/x/srv"}]}}, 0.0)
     eps = {r["url"]: r for r in db.q("SELECT * FROM endpoints")}
     assert eps["https://a.example/mcp"]["skip_reason"] is None
-    assert eps["https://b.example/sse"]["skip_reason"] == "auth-declared"
+    assert eps["https://b.example/sse"]["skip_reason"] is None        # declared auth is probed too
+    assert eps["https://b.example/sse"]["auth_declared"] == 1
     assert eps["https://b.example/sse"]["transport"] == "sse"
     assert eps["https://{tenant}.example/mcp"]["skip_reason"] == "templated-url"
     assert [r["name"] for r in db.q("SELECT * FROM packages")] == ["@x/srv"]
+
+
+def test_declared_auth_with_401_is_rechecked_weekly_not_daily():
+    import time
+    db = CrawlDB(":memory:")
+    now = time.time()
+    db.upsert_endpoint("https://open.example/mcp", "streamable_http", "a", True, None, now)
+    db.upsert_endpoint("https://locked.example/mcp", "streamable_http", "b", True, None, now)
+    db.upsert_endpoint("https://old.example/mcp", "streamable_http", "c", True, None, now)
+    ids = {r["url"].split("/")[2]: r["id"] for r in db.q("SELECT id, url FROM endpoints")}
+    for host, age_d, status in [("open.example", 2, "ok"), ("locked.example", 2, "auth"), ("old.example", 8, "auth")]:
+        db.conn.execute("INSERT INTO probes(endpoint_id,taken_at,status) VALUES(?,?,?)",
+                        (ids[host], now - age_d * 86400, status))
+    due = {r["url"].split("/")[2] for r in db.due_endpoints(20 * 3600, None)}
+    assert due == {"open.example", "old.example"}
 
 
 def test_release_events_flag_takeover_signals():

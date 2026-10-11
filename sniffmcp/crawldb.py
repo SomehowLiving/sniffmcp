@@ -8,6 +8,8 @@ Default path ~/.sniffmcp/crawl.db (override with SNIFFMCP_CRAWL_DB or --db).
 from __future__ import annotations
 import json, os, sqlite3, time
 
+AUTH_RECHECK_S = 7 * 86400
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS servers(
   name TEXT PRIMARY KEY, version TEXT, title TEXT, description TEXT, repo_url TEXT,
@@ -64,6 +66,8 @@ class CrawlDB:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(SCHEMA)
+        # 2026-10-11: auth-declared endpoints are probed now (a declared header is often optional)
+        self.conn.execute("UPDATE endpoints SET skip_reason=NULL WHERE skip_reason='auth-declared'")
         self.conn.commit()
 
     def q(self, sql, *args) -> list[dict]:
@@ -106,10 +110,15 @@ class CrawlDB:
         Bulk publishers register thousands of entries on one host; the cap samples them
         on rotation instead of hitting one operator thousands of times a day."""
         from urllib.parse import urlparse
-        sql = ("SELECT e.*, COALESCE((SELECT MAX(taken_at) FROM probes p WHERE p.endpoint_id=e.id), 0) AS last_probe"
+        sql = ("SELECT e.*, COALESCE((SELECT MAX(taken_at) FROM probes p WHERE p.endpoint_id=e.id), 0) AS last_probe,"
+               " (SELECT status FROM probes p WHERE p.endpoint_id=e.id ORDER BY p.id DESC LIMIT 1) AS last_status"
                " FROM endpoints e WHERE e.skip_reason IS NULL AND last_probe < ? ORDER BY last_probe, e.id")
         rows, per_host = [], {}
+        week_ago = time.time() - AUTH_RECHECK_S
         for r in self.q(sql, time.time() - min_age_s):
+            # declared auth and a 401 last time: re-check weekly, not daily (a 401 a day tells nobody anything)
+            if r["auth_declared"] and r["last_status"] == "auth" and r["last_probe"] > week_ago:
+                continue
             host = urlparse(r["url"]).hostname or ""
             if per_host_cap and per_host.get(host, 0) >= per_host_cap:
                 continue
