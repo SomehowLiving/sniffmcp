@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS package_advisories(
 CREATE TABLE IF NOT EXISTS crawl_runs(
   id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, started_at REAL, finished_at REAL,
   status TEXT, stages TEXT);
+CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE INDEX IF NOT EXISTS probes_ep ON probes(endpoint_id, taken_at);
 CREATE INDEX IF NOT EXISTS snaps_ep ON snapshots(endpoint_id, id);
 """
@@ -119,6 +120,14 @@ class CrawlDB:
     def last_snapshot(self, endpoint_id) -> dict | None:
         rows = self.q("SELECT * FROM snapshots WHERE endpoint_id=? ORDER BY id DESC LIMIT 1", endpoint_id)
         return rows[0] if rows else None
+
+    def meta(self, key: str):
+        return self.one("SELECT value FROM meta WHERE key=?", key)
+
+    def set_meta(self, key: str, value) -> None:
+        self.conn.execute("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                          (key, str(value)))
+        self.conn.commit()
 
     def commit(self):
         self.conn.commit()

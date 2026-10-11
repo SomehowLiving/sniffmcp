@@ -132,6 +132,10 @@ async def cmd_crawl(args) -> int:
     db = CrawlDB(args.db)
 
     def progress(done, total, what, status):
+        if args.quiet:   # public CI logs: counts only, never server names or URLs
+            if done == total or done % 2000 == 0:
+                print(f"  [{done}/{total}]", file=sys.stderr)
+            return
         if status != "ok" or done % 50 == 0 or done == total:
             print(f"  [{done}/{total}] {status:8} {what[:90]}", file=sys.stderr)
 
@@ -143,7 +147,7 @@ async def cmd_crawl(args) -> int:
     # checks (the history), and every run is recorded so gaps and failures are visible later.
     import time, traceback
     stages = {
-        "sync": lambda: crawler.sync_registry(db),
+        "sync": lambda: crawler.sync_registry(db, full=True if args.full_sync else None),
         "probe": lambda: crawler.probe_remotes(db, concurrency=args.concurrency, min_age_h=args.min_age,
                                                limit=args.limit, per_host_cap=args.per_host_cap, progress=progress),
         "packages": lambda: crawler.crawl_packages(db, concurrency=args.concurrency, min_age_h=args.min_age,
@@ -159,8 +163,9 @@ async def cmd_crawl(args) -> int:
             print(f"{name}: {out}", file=sys.stderr)
         except Exception as e:
             results[name] = {"ok": False, "error": f"{type(e).__name__}: {e}"[:500]}
-            print(f"{name}: FAILED {type(e).__name__}: {e}", file=sys.stderr)
-            traceback.print_exc(file=sys.stderr)
+            print(f"{name}: FAILED {type(e).__name__}" + ("" if args.quiet else f": {e}"), file=sys.stderr)
+            if not args.quiet:
+                traceback.print_exc(file=sys.stderr)
     if args.action == "rescore":
         print(f"rescored {crawler.rescore(db)} snapshots with the current rules", file=sys.stderr)
     if args.action in ("report", "run", "rescore"):
@@ -266,6 +271,8 @@ def main(argv=None) -> int:
     cr.add_argument("--limit", type=int, default=None, help="probe/check at most N items")
     cr.add_argument("--concurrency", type=int, default=8)
     cr.add_argument("--min-age", type=float, default=20, help="hours before an item is re-probed")
+    cr.add_argument("--quiet", action="store_true", help="counts only in logs (no server names/URLs), for public CI")
+    cr.add_argument("--full-sync", action="store_true", help="re-read the whole registry instead of only recent changes")
     cr.add_argument("--per-host-cap", type=int, default=100, help="max endpoints probed per host per run (rotates)")
     cr.add_argument("--days", type=int, default=7, help="report window")
     cr.add_argument("--output", default=None, help="write the report here instead of stdout")

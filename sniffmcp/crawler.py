@@ -33,22 +33,39 @@ DAY = 86400
 
 
 # ---------------------------------------------------------------- registry
-async def sync_registry(db: CrawlDB, page_size: int = 100, max_pages: int = 1000) -> dict:
-    now, cursor, n = time.time(), None, 0
+FULL_SYNC_EVERY = 7 * DAY
+
+
+async def sync_registry(db: CrawlDB, page_size: int = 100, max_pages: int = 1000,
+                        full: bool | None = None) -> dict:
+    """Incremental by default: only entries the registry updated since the last sync (minus an
+    hour of overlap), which is a few pages instead of ~400 slow ones. A full sync runs weekly,
+    when forced, or on a fresh database, so nothing drifts."""
+    started = time.time()
+    last_sync = float(db.meta("last_sync") or 0)
+    last_full = float(db.meta("last_full_sync") or 0)
+    if full is None:
+        full = not last_sync or started - last_full > FULL_SYNC_EVERY
+    cursor, n = None, 0
     async with httpx2.AsyncClient(timeout=60, headers={"User-Agent": USER_AGENT}) as http:
         for _ in range(max_pages):
             params = {"limit": page_size, "version": "latest"}
+            if not full:
+                params["updated_since"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(last_sync - 3600))
             if cursor:
                 params["cursor"] = cursor
             data = await _get_json(http, REGISTRY, params)
             for entry in data.get("servers", []):
-                _ingest(db, entry, now)
+                _ingest(db, entry, started)
                 n += 1
             db.commit()
             cursor = (data.get("metadata") or {}).get("nextCursor")
             if not cursor:
                 break
-    return {"servers": n}
+    db.set_meta("last_sync", started)
+    if full:
+        db.set_meta("last_full_sync", started)
+    return {"servers": n, "mode": "full" if full else "incremental"}
 
 
 async def _get_json(http, url, params, attempts: int = 4) -> dict:

@@ -113,3 +113,21 @@ def test_failed_stage_does_not_abort_the_run(tmp_path, monkeypatch):
     monkeypatch.setattr(cr, "probe_remotes", probe_down)
     assert cli.main(["crawl", "run", "--db", str(db)]) == 1        # core stage failed -> retry later
     assert "failed" in cr.status(CrawlDB(str(db)))
+
+
+
+async def test_sync_is_incremental_after_first_full(monkeypatch):
+    seen = []
+
+    async def fake_get(http, url, params):
+        seen.append(dict(params))
+        return {"servers": [], "metadata": {}}
+    monkeypatch.setattr(crawler, "_get_json", fake_get)
+    db = CrawlDB(":memory:")
+    assert (await crawler.sync_registry(db))["mode"] == "full"            # fresh db
+    assert "updated_since" not in seen[-1]
+    assert (await crawler.sync_registry(db))["mode"] == "incremental"
+    assert "updated_since" in seen[-1]
+    db.set_meta("last_full_sync", 0)                                         # a week+ ago
+    assert (await crawler.sync_registry(db))["mode"] == "full"
+    assert (await crawler.sync_registry(db, full=True))["mode"] == "full"
