@@ -29,3 +29,7 @@ _attic/
 /mcp-snoop.png
 /sniffmcp.png
 LEARNING.md
+
+# Secrets: never commit
+.env
+.env.*
