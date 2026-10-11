@@ -242,12 +242,16 @@ def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
         claims_ro = na.get("readOnlyHint") and not oa.get("readOnlyHint")
         claims_safe = oa.get("destructiveHint") and na.get("destructiveHint") is False
         explicit_before = oa.get("readOnlyHint") is False or oa.get("destructiveHint") is True
-        powerful_name = bool(tool_capability(new) & {"destructive", "write", "exec"})
+        # only unambiguous verbs: "post"/"set"/"add" are often nouns (read_x_post, get_settings)
+        powerful_name = bool(tool_capability(new) & {"destructive", "exec"})
         relaxed = (claims_ro or claims_safe) and (explicit_before or powerful_name)
         tightened = (oa.get("readOnlyHint") and not na.get("readOnlyHint")) or \
                     (na.get("destructiveHint") and not oa.get("destructiveHint"))
         if relaxed:
-            out.append(Finding("SM-03", "high", f"Tool '{name}' now claims to be read-only / non-destructive",
+            # high only for delete/exec-named tools; other relaxations are usually corrections
+            # (a "Browse" tool fixing an over-cautious hint) and wait for the weekly review
+            out.append(Finding("SM-03", "high" if powerful_name else "medium",
+                f"Tool '{name}' now claims to be read-only / non-destructive",
                 f"annotations {oa} -> {na}",
                 "Clients may start auto-approving it. Check the tool still does what the new hint says.",
                 tool_name=name, kind="risky"))

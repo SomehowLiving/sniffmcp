@@ -89,9 +89,23 @@ JOINER_SCRIPTS = re.compile("[\u0600-\u06ff\u0750-\u077f\u0900-\u0dff\U0001f300-
 LONG_DESCRIPTION = 2500
 
 
+EXAMPLE_BEFORE = re.compile(r"(?i)\b(example|sample|e\.g\.|for instance|such as|like this)\b")
+
+
+def _inside_quoted_example(text: str, start: int) -> bool:
+    """A sample attack shown inside a quoted string after "example"/"sample" (an injection
+    *detector* describing its input, seen 2026-10-11) is data being described, not an order."""
+    before = text[max(0, start - 200):start]
+    in_quotes = before.count('"') % 2 == 1 or before.count("“") > before.count("”")
+    return in_quotes and bool(EXAMPLE_BEFORE.search(before))
+
+
 def _counts(label: str, text: str, m: re.Match) -> bool:
     if label == "encoded payload":
         return looks_encoded(m.group(0))
+    if label in MENTION_RULES or label == "concealment from user":
+        if _inside_quoted_example(text, m.start()):
+            return False
     if label in MENTION_RULES:
         return not MENTION_BEFORE.search(text[max(0, m.start() - 80):m.start()])
     return True

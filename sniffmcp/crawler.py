@@ -404,6 +404,50 @@ def status(db: CrawlDB, days: int = 14) -> str:
     return "\n".join(L)
 
 
+# ---------------------------------------------------------------- digest
+def digest(db: CrawlDB, hours: int = 26, weekly: bool = False) -> tuple[str, bool]:
+    """Short email-sized summary of the last crawl window. Returns (markdown, notable).
+    notable = something a human should look at: risky manifest changes, high-severity package
+    signals, new malware advisories, or an unhealthy/failed crawl."""
+    since = time.time() - hours * 3600
+    since_iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(since))
+    health = status(db).splitlines()[0]
+    last_run = (db.q("SELECT status FROM crawl_runs WHERE action='run' ORDER BY id DESC LIMIT 1") or [{"status": "?"}])[0]["status"]
+    ch = db.q("SELECT c.kind, c.severity, c.title, e.server_name FROM changes c JOIN endpoints e ON e.id=c.endpoint_id"
+              " WHERE c.detected_at>?", since)
+    risky = [c for c in ch if c["kind"] == "risky"]
+    changed = db.one("SELECT COUNT(DISTINCT endpoint_id) FROM changes WHERE detected_at>?", since) or 0
+    probed = db.one("SELECT COUNT(DISTINCT endpoint_id) FROM probes WHERE taken_at>? AND status='ok'", since) or 0
+    pkg = db.q("SELECT ecosystem, name, version, kind, detail FROM package_events WHERE published_at>=? "
+               "AND severity='high' ORDER BY published_at DESC", since_iso)
+    mal = db.q("SELECT ecosystem, name, vuln_id, summary, affects_latest FROM package_advisories "
+               "WHERE kind='malware' AND first_seen>?", since)
+    # Email-worthy only: high/critical drift, new malware, or an unhealthy crawl. Medium drift and
+    # package signals (hundreds of provenance drops are normal) wait for the weekly summary.
+    urgent = [c for c in risky if c["severity"] in ("high", "critical")]
+    notable = bool(urgent or mal) or not health.startswith("crawl health: OK") or last_run in ("failed", "partial")
+    if not weekly:
+        risky, pkg = urgent, []
+    head = "📅 Weekly summary" if weekly else ("🚨 Needs a look" if notable else "✅ Quiet day")
+    L = [f"**{head}** · {time.strftime('%Y-%m-%d')} · last run: `{last_run}`",
+         "", f"- {health}",
+         f"- servers checked: {probed:,} · changed: {changed:,} "
+         f"({', '.join(f'{k} {v}' for k, v in Counter(c['kind'] for c in ch).most_common()) or 'no changes'})", ""]
+    if risky:
+        L += ["**Risky manifest changes** (verify by hand before acting):"]
+        L += [f"- `{c['server_name']}`: {c['title'][:120]}" for c in risky[:10]]
+        L += [f"- …and {len(risky) - 10} more" if len(risky) > 10 else ""]
+    if mal:
+        L += ["**New malware advisories (OSV):**"]
+        L += [f"- `{m['ecosystem']}:{m['name']}` {m['vuln_id']}" + (" ⚠️ affects latest" if m["affects_latest"] else "")
+              for m in mal[:10]]
+    if pkg:
+        L += ["**High-severity package signals:**"]
+        L += [f"- `{p['ecosystem']}:{p['name']}@{p['version']}` {p['kind']}" for p in pkg[:10]]
+    L += ["", "_Leads, not verdicts. Full report attached to today's snapshot release._"]
+    return "\n".join(x for x in L if x is not None), notable
+
+
 # ---------------------------------------------------------------- report
 def _cell(s, n=110) -> str:
     s = " ".join(str(s or "").split()).replace("`", "'").replace("|", "/")

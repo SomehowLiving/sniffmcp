@@ -131,3 +131,21 @@ async def test_sync_is_incremental_after_first_full(monkeypatch):
     db.set_meta("last_full_sync", 0)                                         # a week+ ago
     assert (await crawler.sync_registry(db))["mode"] == "full"
     assert (await crawler.sync_registry(db, full=True))["mode"] == "full"
+
+
+
+def test_digest_emails_only_for_urgent_things():
+    import time as _t
+    db = CrawlDB(":memory:")
+    db.upsert_endpoint("https://a.example/mcp", "streamable_http", "srv", False, None, 0.0)
+    eid = db.q("SELECT id FROM endpoints")[0]["id"]
+    db.conn.execute("INSERT INTO probes(endpoint_id,taken_at,status) VALUES(?,?,?)", (eid, _t.time(), "ok"))
+    db.conn.execute("INSERT INTO changes(endpoint_id,detected_at,kind,severity,title) VALUES(?,?,?,?,?)",
+                    (eid, _t.time(), "risky", "medium", "Tool 'x' description changed"))
+    md, notable = crawler.digest(db)
+    assert not notable and "Quiet day" in md                     # medium drift waits for the weekly
+    assert "description changed" in crawler.digest(db, weekly=True)[0]
+    db.conn.execute("INSERT INTO changes(endpoint_id,detected_at,kind,severity,title) VALUES(?,?,?,?,?)",
+                    (eid, _t.time(), "risky", "critical", "Tool 'y' gained injection indicators"))
+    md, notable = crawler.digest(db)
+    assert notable and "injection" in md

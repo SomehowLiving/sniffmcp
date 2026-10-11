@@ -142,6 +142,14 @@ async def cmd_crawl(args) -> int:
     if args.action == "status":
         print(crawler.status(db))
         return 0
+    if args.action == "digest":
+        md, notable = crawler.digest(db, hours=24 * 7 if args.weekly else 26, weekly=args.weekly)
+        if args.output:
+            Path(args.output).write_text(md)
+        else:
+            print(md)
+        print(f"notable={'true' if notable else 'false'}", file=sys.stderr if not args.output else sys.stdout)
+        return 0
 
     # Each stage runs on its own: a registry outage must not throw away the probes and package
     # checks (the history), and every run is recorded so gaps and failures are visible later.
@@ -265,13 +273,14 @@ def main(argv=None) -> int:
                     help="never start stdio servers: config + OSV checks only (use in CI on untrusted configs)")
 
     cr = sub.add_parser("crawl", help="crawl the official MCP registry and snapshot public servers over time")
-    cr.add_argument("action", choices=["sync", "probe", "packages", "advisories", "report", "run", "rescore", "status"],
+    cr.add_argument("action", choices=["sync", "probe", "packages", "advisories", "report", "run", "rescore", "status", "digest"],
                     help="run = sync + probe + packages + advisories + report (what a daily cron should call)")
     cr.add_argument("--db", default=None, help="crawl database (default ~/.sniffmcp/crawl.db)")
     cr.add_argument("--limit", type=int, default=None, help="probe/check at most N items")
     cr.add_argument("--concurrency", type=int, default=8)
     cr.add_argument("--min-age", type=float, default=20, help="hours before an item is re-probed")
     cr.add_argument("--quiet", action="store_true", help="counts only in logs (no server names/URLs), for public CI")
+    cr.add_argument("--weekly", action="store_true", help="digest: 7-day summary including medium changes and package signals")
     cr.add_argument("--full-sync", action="store_true", help="re-read the whole registry instead of only recent changes")
     cr.add_argument("--per-host-cap", type=int, default=100, help="max endpoints probed per host per run (rotates)")
     cr.add_argument("--days", type=int, default=7, help="report window")
