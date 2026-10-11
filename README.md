@@ -195,11 +195,15 @@ past malware in four registry packages: three from the Shai-Hulud worm campaigns
 - Packages are never downloaded or executed.
 - Data stays local (`~/.sniffmcp/crawl.db`).
 
-Daily via cron:
+Daily, self-healing (catches up after sleep or shutdown instead of losing the day):
 
 ```cron
-17 6 * * * cd /path/to/sniffmcp && .venv/bin/sniffmcp crawl run --output reports/crawl-$(date +\%F).md >> ~/.sniffmcp/crawl.log 2>&1
+*/30 * * * * SNIFFMCP_BACKUP_DIR=/path/to/backups /path/to/sniffmcp/scripts/daily-crawl.sh
+@reboot sleep 180 && SNIFFMCP_BACKUP_DIR=/path/to/backups /path/to/sniffmcp/scripts/daily-crawl.sh
 ```
+
+`scripts/daily-crawl.sh` crawls only when the last successful crawl is over 20 hours old, never runs
+twice at once, and (with `SNIFFMCP_BACKUP_DIR`) keeps a consistent copy of `crawl.db` for the last 7 days.
 
 ## How it compares
 
