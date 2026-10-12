@@ -1,6 +1,8 @@
 # sniffmcp architecture
 
-*As of 2026-10-12. See [README.md](README.md) for what it does and [docs/](docs/README.md) for how to use it.*
+*As of 2026-10-12. For the problem and where SniffMCP fits, start with [Why SniffMCP](docs/why-sniffmcp.md); for usage, [docs/](docs/README.md).*
+
+*Diagram colours: purple = SniffMCP, blue = stored data, amber = third parties, red = bad outcome or block, green = good outcome, grey = ignored or skipped.*
 
 ## 1. The big picture
 
@@ -56,6 +58,16 @@ flowchart LR
     CRAWLER --> NPM
     CRAWLER --> ENGINE
     CRAWLER --> CRAWL
+
+    classDef sniff fill:#ede7f6,stroke:#5e35b1
+    classDef bad fill:#ffebee,stroke:#e53935
+    classDef ok fill:#e8f5e9,stroke:#43a047
+    classDef muted fill:#eceff1,stroke:#90a4ae,color:#455a64
+    classDef ext fill:#fff8e1,stroke:#f9a825
+    classDef store fill:#e3f2fd,stroke:#1e88e5
+    class CLI,ACT,SRV,CRON,ENGINE,CHECKS,INJ,SCORE,REPORT,CLIENT,OAUTH,OSV,FLEET,WATCH,CRAWLER sniff
+    class STATE,CRAWL store
+    class LOCAL,REG,PUB,NPM ext
 ```
 
 ## 2. What we're built on
@@ -94,6 +106,16 @@ flowchart TD
     L --> M["scoring.py<br/>100 − weighted deductions<br/>max 2 per check<br/>critical → F, high → C at best"]
     M --> N["report.py<br/>console · JSON · SARIF<br/>+ OWASP MCP IDs, secrets redacted"]
     N --> O["Exit code<br/>0 clean · 1 findings · 2 bad config · 3 not analysed"]
+
+    classDef sniff fill:#ede7f6,stroke:#5e35b1
+    classDef bad fill:#ffebee,stroke:#e53935
+    classDef ok fill:#e8f5e9,stroke:#43a047
+    classDef muted fill:#eceff1,stroke:#90a4ae,color:#455a64
+    classDef ext fill:#fff8e1,stroke:#f9a825
+    classDef store fill:#e3f2fd,stroke:#1e88e5
+    class STOP,G bad
+    class OSV,J,K,M sniff
+    class O ok
 ```
 
 ### How a text rule decides
@@ -118,6 +140,17 @@ flowchart LR
     H --> C{"≥2 independent serious hits<br/>in the same text?"}
     C -->|yes| CR["escalate to critical<br/>'multiple injection indicators'"]
     C -->|no| K["keep rule severity"]
+
+    classDef sniff fill:#ede7f6,stroke:#5e35b1
+    classDef bad fill:#ffebee,stroke:#e53935
+    classDef ok fill:#e8f5e9,stroke:#43a047
+    classDef muted fill:#eceff1,stroke:#90a4ae,color:#455a64
+    classDef ext fill:#fff8e1,stroke:#f9a825
+    classDef store fill:#e3f2fd,stroke:#1e88e5
+    class X muted
+    class H,CR bad
+    class L ok
+    class M2,K ext
 ```
 
 ## 4. Watching for changes (rug pulls)
@@ -212,6 +245,17 @@ flowchart TD
     EV --> PE[("package_events")]
 
     SV & PR & SNAP & CH & PV & PE --> REP["report.md · digest"]
+
+    classDef sniff fill:#ede7f6,stroke:#5e35b1
+    classDef bad fill:#ffebee,stroke:#e53935
+    classDef ok fill:#e8f5e9,stroke:#43a047
+    classDef muted fill:#eceff1,stroke:#90a4ae,color:#455a64
+    classDef ext fill:#fff8e1,stroke:#f9a825
+    classDef store fill:#e3f2fd,stroke:#1e88e5
+    class R1,R2,DONE muted
+    class SV,EP,PK,PR,SNAP,CH,PV,PE store
+    class GUARD,DRIFT,EV sniff
+    class REG ext
 ```
 
 Registry sync is incremental (`updated_since`, a few pages a day instead of ~400) with a full re-read weekly. Endpoints that declare a required auth header are probed without credentials: on 2026-10-11, 37% of them answered anyway. Method, definitions and current numbers: [docs/crawler.md](docs/crawler.md).
@@ -293,6 +337,16 @@ flowchart LR
     RUN --> DIGEST{"notable, Monday,<br/>or failed?"}
     DIGEST -->|yes| ISSUE["comment on a pinned issue<br/>@owner → GitHub emails it"]
     RUN --> SAVE["new release<br/>crawl.db.zst + report.md<br/>last 14 kept"]
+
+    classDef sniff fill:#ede7f6,stroke:#5e35b1
+    classDef bad fill:#ffebee,stroke:#e53935
+    classDef ok fill:#e8f5e9,stroke:#43a047
+    classDef muted fill:#eceff1,stroke:#90a4ae,color:#455a64
+    classDef ext fill:#fff8e1,stroke:#f9a825
+    classDef store fill:#e3f2fd,stroke:#1e88e5
+    class SKIPPED muted
+    class RESCORE,RUN sniff
+    class ISSUE,SAVE ok
 ```
 
 - **No secrets:** the built-in `GITHUB_TOKEN` creates releases and comments. No PAT and no SMTP.

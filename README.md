@@ -20,6 +20,9 @@ you what's risky:
 
 No account. Nothing uploaded. One runtime dependency (the official MCP SDK).
 
+**New here?** [Why SniffMCP](docs/why-sniffmcp.md) explains the attacks with diagrams, where SniffMCP fits
+among the defences, and what it deliberately doesn't claim to do.
+
 ## Quickstart
 
 ```bash
