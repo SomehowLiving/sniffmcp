@@ -1,23 +1,27 @@
 # sniffmcp architecture
 
-*As of 2026-10-09. See [README.md](README.md) for what it does and how to use it.*
+*As of 2026-10-12. See [README.md](README.md) for what it does and [docs/](docs/README.md) for how to use it.*
 
 ## 1. The big picture
 
-sniffmcp has three entry points and one shared engine. Everything that grades a server goes through the same pipeline, so the CLI, the watcher, the MCP server mode and the crawler always agree.
+sniffmcp has four entry points and one shared engine. Everything that grades a server goes through the same pipeline, so the CLI, the GitHub Action, the watcher, the MCP server mode and the crawler always agree.
 
 ```mermaid
 flowchart LR
     subgraph Entry["Entry points"]
-        CLI["CLI<br/>scan · fleet · watch · crawl"]
+        CLI["CLI<br/>scan · fleet · watch · login · crawl"]
+        ACT["GitHub Action<br/>action.yml, no launch by default"]
         SRV["MCP server mode<br/>agent calls sniffmcp"]
-        CRON["Daily cron<br/>crawl run"]
+        CRON["Daily crawl<br/>GitHub Actions or cron"]
     end
 
     subgraph Core["Shared engine"]
         CLIENT["client.py<br/>connect + list"]
+        OAUTH["oauth.py<br/>read-only login"]
+        OSV["osv.py<br/>malware + CVEs"]
+        FLEET["fleet.py<br/>cross-server checks"]
         ENGINE["engine.py<br/>one scan pipeline"]
-        CHECKS["checks.py<br/>SM-01..10, drift"]
+        CHECKS["checks.py<br/>SM-01..12, drift"]
         INJ["injection.py<br/>text rules"]
         SCORE["scoring.py<br/>score + grade caps"]
         REPORT["report.py<br/>JSON · SARIF · OWASP map"]
@@ -36,7 +40,11 @@ flowchart LR
     end
 
     CLI --> ENGINE
+    ACT --> CLI
     SRV --> ENGINE
+    CLI --> FLEET --> ENGINE
+    ENGINE --> OSV
+    CLIENT --> OAUTH
     CRON --> CRAWLER["crawler.py"]
     ENGINE --> CLIENT --> LOCAL
     ENGINE --> CHECKS --> INJ
@@ -90,7 +98,7 @@ flowchart TD
 
 ### How a text rule decides
 
-Precision over recall. Every rule must stay silent on ~30 real descriptions from the crawl that once fooled it.
+Precision over recall. Every rule must stay silent on 36 real descriptions from the crawl that once fooled it, and every new rule is run over all reachable registry servers (11,951 on 2026-10-11) before it ships. The full rule list is in [docs/detection.md](docs/detection.md).
 
 ```mermaid
 flowchart LR
@@ -101,6 +109,9 @@ flowchart LR
     F2 -->|"hex / slash list / no case mix"| X
     F2 -->|real base64 shape| H["hit"]
     F1 -->|no, other rule| H
+    F1 -->|"no, 'writes into agent config'"| G{"who decides?"}
+    G -->|"consent wording · skill installer · inside a prompt"| L["low"]
+    G -->|"unprompted · self-persistence ('so you don't re-learn it')"| M2["medium"]
     T --> U{"hidden Unicode?"}
     U -->|"ZWNJ/ZWJ in Persian, Arabic,<br/>Indic or emoji text"| X
     U -->|otherwise| H
@@ -146,11 +157,13 @@ sequenceDiagram
 | Change | Class | Severity |
 |---|---|---|
 | New or changed text gains an injection indicator | risky | critical |
-| New exec / destructive / secret-reading tool | risky | high |
-| Description gains a URL | risky | medium |
-| Tool turns from read-only to destructive (annotations) | risky | medium |
+| A write/delete/exec tool now *claims* read-only or non-destructive (clients may auto-approve it) | risky | high (delete/exec name) / medium |
+| Description gains a URL off the server's own site | risky | medium |
+| New exec / destructive / secret-reading tool; a tool now declares itself destructive | capability | low–medium |
 | Tool removed, new required parameter | breaking | low |
-| Wording change, harmless new tool | benign | info |
+| Wording change, harmless new tool, own-site link, first-time annotations | benign | info |
+
+Calibrated on the 2026-10-10 crawl: the first rules called 27 changes risky and none was an attack; after calibration, 3. Details: [docs/watching.md](docs/watching.md).
 
 ## 5. MCP server mode: guarding against our own tool
 
@@ -180,10 +193,9 @@ flowchart TD
     SYNC --> EP[("endpoints")]
     SYNC --> PK[("packages")]
 
-    EP --> SKIP{"skip?"}
-    SKIP -->|"templated URL"| R1["record only"]
-    SKIP -->|"declares required auth"| R1
-    SKIP -->|probeable| DUE["due list<br/>stalest first<br/>≤100 per host per run"]
+    EP --> SKIP{"templated URL?"}
+    SKIP -->|yes| R1["record only"]
+    SKIP -->|no| DUE["due list<br/>stalest first · ≤100 per host per run<br/>declared auth + 401 last time → weekly"]
     DUE --> GUARD{"resolves only to<br/>public IPs?"}
     GUARD -->|"no: localhost / LAN / metadata"| R2["skipped (SSRF guard)"]
     GUARD -->|yes| PROBE["list tools/resources/prompts<br/>≤2 per host, 16 total<br/>never calls a tool"]
@@ -199,8 +211,10 @@ flowchart TD
     META --> EV["release_events<br/>install script added · provenance dropped<br/>new publisher w/o provenance · source-only"]
     EV --> PE[("package_events")]
 
-    SV & PR & SNAP & CH & PV & PE --> REP["report.md"]
+    SV & PR & SNAP & CH & PV & PE --> REP["report.md · digest"]
 ```
+
+Registry sync is incremental (`updated_since`, a few pages a day instead of ~400) with a full re-read weekly. Endpoints that declare a required auth header are probed without credentials: on 2026-10-11, 37% of them answered anyway. Method, definitions and current numbers: [docs/crawler.md](docs/crawler.md).
 
 ### Crawl database
 
@@ -263,6 +277,28 @@ erDiagram
     }
 ```
 
+### Running it in the cloud
+
+The reference dataset is collected on GitHub Actions in a private repository, so it doesn't depend on a laptop being awake. `scripts/github-crawl.yml` is the template.
+
+```mermaid
+flowchart LR
+    SCHED["schedule<br/>fixed daily slot + backup slot"] --> GATE{"crawl already<br/>succeeded today?"}
+    GATE -->|yes| SKIPPED["skip"]
+    GATE -->|no| FETCH["download newest release<br/>crawl.db.zst"]
+    FETCH --> RULES{"detection rules<br/>changed?"}
+    RULES -->|yes| RESCORE["crawl rescore<br/>(rules hash in meta)"]
+    RULES -->|no| RUN
+    RESCORE --> RUN["crawl run<br/>sync · probe · packages · advisories"]
+    RUN --> DIGEST{"notable, Monday,<br/>or failed?"}
+    DIGEST -->|yes| ISSUE["comment on a pinned issue<br/>@owner → GitHub emails it"]
+    RUN --> SAVE["new release<br/>crawl.db.zst + report.md<br/>last 14 kept"]
+```
+
+- **No secrets:** the built-in `GITHUB_TOKEN` creates releases and comments. No PAT and no SMTP.
+- **Fixed hour:** probing at the same time each day keeps cyclic changes (daily counters, rotating content) from showing up as drift.
+- **Backup slot:** GitHub's scheduler can drop runs under load, so a second daily slot runs only if the first didn't succeed.
+
 ## 7. Public standards and data: what we use, and what we don't yet
 
 Which public standards, threat research and data feeds sniffmcp builds on, and which it doesn't yet.
@@ -278,6 +314,8 @@ Which public standards, threat research and data feeds sniffmcp builds on, and w
 | **OSV.dev malicious-package advisories** (`MAL-…`, OpenSSF malicious-packages feed) | ✅ | `SM-11`. The scanner checks the package **before spawning it** and refuses to launch known malware. The crawler checks every registry package (`crawl advisories`) |
 | **CVE / GHSA / PYSEC advisories** | ✅ | `SM-12`, via the same OSV queries. Pinned versions are checked exactly; unpinned ones at today's latest (what `npx`/`uvx` would run) |
 | **Cisco mcp-scanner YARA rules** (Apache-2.0) | ✅ as a **benchmark**, not a dependency | `scripts/benchmark_yara.py` fetches them at a pinned commit and runs them head-to-head with ours on the labelled corpus and all 10k crawled servers. Results: `reports/benchmark-cisco-yara-*.md`. One lead they surfaced that we missed became a new rule ("installs code into agent config") |
+| **MCP authorization spec** (OAuth 2.1, PKCE, protected-resource metadata, dynamic client registration) | ✅ | `oauth.py`: SniffMCP logs in as its own client, **read scopes only** ([docs/oauth.md](docs/oauth.md)) |
+| **NVIDIA SkillSpector, Cisco skill-scanner, Agent Threat Rules** | ✅ as **sources of rule ideas** | Studied 2026-10-11. 9 candidate rules were run over 11,951 live servers; 6 shipped (safety override, context smuggling, outcome deception, hidden `<!-- -->` directives, terminal escapes, tool precedence as low); 3 were dropped for firing on legitimate servers |
 | **LLM-as-judge** | ❌ (hook exists: `analyze_descriptions(llm_hook=…)`) | Cisco and Snyk use one. Optional second opinion for ambiguous text |
 
 ### Our checks mapped to OWASP MCP Top 10
@@ -297,20 +335,23 @@ Which public standards, threat research and data feeds sniffmcp builds on, and w
 
 ## 8. How our approach compares
 
-| | **sniffmcp** | **Snyk Agent Scan** (ex-Invariant mcp-scan) | **Cisco mcp-scanner** (open source) | **MCP-Sentinel** | **MCP-Shield** (indie) |
+| | **sniffmcp** | **Snyk Agent Scan** (ex-Invariant mcp-scan) | **Cisco mcp-scanner** | **NVIDIA SkillSpector** | **MCP-Sentinel** |
 |---|---|---|---|---|---|
-| Scans | Installed servers, live | Installed servers, live | Servers / tools, live | Server **source code** | Installed servers |
-| Detection | Regex rules tuned on 10k real servers | Hosted analysis + rules | YARA + LLM judge + Cisco AI Defense | AST, Semgrep, LLM, Docker probes | Rules |
-| Account / upload | **None, fully local** | Snyk token; tool data sent to Snyk | Local YARA; LLM/API optional | OpenAI key for full value | Local |
-| Drift / rug pull | **Classified** risky / breaking / benign, alert once | Hash pinning (alerts on any change) | Rug-pull detection claimed | CI baselines (findings) | — |
-| Ecosystem dataset | **Daily crawl of the whole registry, with history** | Not public | No | No | No |
-| Package supply chain | OSV malware + CVEs (pre-spawn block), provenance drop, install scripts, publisher change | Snyk platform | — | Provenance | Typosquats, CVEs |
-| Sees handler behaviour | ❌ | ❌ | Partly (LLM over implementations) | ✅ (source + probes) | ❌ |
-| OAuth servers | ❌ yet | ✅ (via client) | depends | n/a | ? |
-| Maturity | Days old | Most mature, Snyk-backed | ~900 stars | v1.4 | small |
+| Scans | Installed MCP servers, live | Installed servers, live | Servers / tools, live | Agent **skills** (+ MCP metadata) | Server **source code** |
+| Detection | Regex rules vetted on ~12k real servers + OSV | Hosted analysis + rules | YARA + LLM judge + Cisco AI Defense | Regex + AST + taint + YARA, optional LLM | AST, Semgrep, LLM, Docker probes |
+| Stated trade-off | Precision first | — | — | "High recall, moderate precision" | — |
+| Account / upload | **None, fully local** | Snyk token; tool data sent to Snyk | Local YARA; LLM/API optional | Local; LLM optional | LLM key for full value |
+| Drift / rug pull | **Classified** risky / capability / breaking / benign, alert once | Hash pinning (alerts on any change) | Rug-pull detection claimed | — | CI baselines |
+| Ecosystem dataset | **Daily crawl of the whole registry, with history** | Not public | No | Research set, not published | No |
+| Package supply chain | OSV malware + CVEs (pre-spawn block), provenance drop, install scripts, publisher change | Snyk platform | — | OSV | Provenance |
+| Sees handler behaviour | ❌ | ❌ | Partly (LLM over implementations) | ✅ for skill scripts | ✅ (source + probes) |
+| OAuth servers | ✅ read-only login | ✅ (via client) | depends | n/a | n/a |
+| Maturity | Weeks old | Most mature, Snyk-backed | ~1.1k ★ | ~20k ★, NVIDIA | v1.4 |
+
+**A different kind of tool worth knowing:** [mcp-transparency-log](https://github.com/yassinht/mcp-transparency-log) keeps a signed, append-only Merkle log of what every registry server served each night. It's a record you can verify, not a scanner. Our crawls measure the same thing independently (56% vs 56.8% of endpoints answering without auth on 2026-10-11); what we add is classifying *what changed* and tracking packages.
 
 **Where we're genuinely better:**
-- **Calibrated precision.** Our rules were tested against 10,409 real servers, with every high/critical hit checked by hand. We have the false-positive corpus to prove it. Nobody else publishes that.
+- **Calibrated precision.** Every rule is run over every reachable registry server before it ships, and every high/critical hit is checked by hand. The false-positive corpus is in the test suite.
 - **Fully local, one dependency.**
 - **Drift that doesn't cry wolf.**
 - **The longitudinal registry dataset.**
@@ -318,7 +359,6 @@ Which public standards, threat research and data feeds sniffmcp builds on, and w
 **Where we're worse:**
 - No LLM or semantic analysis.
 - No source or behaviour analysis.
-- No OAuth.
 - No track record. *None* of these tools, including ours, publish independently audited detection rates.
 
 **What would actually make us defensible:** the dataset plus the published false-positive and true-positive corpus. A public benchmark that every scanner can be measured against is something the others can't easily copy.
@@ -333,15 +373,22 @@ Which public standards, threat research and data feeds sniffmcp builds on, and w
 6. **Mentions aren't attacks.** Security tools quote attack phrases; we skip quoted, negated or "detects…" contexts.
 7. **SSRF guard in the crawler.** Registry entries are untrusted input.
 8. **Secrets never echoed.** Reports end up in CI logs and SARIF uploads.
+9. **Vet rules on the ecosystem, not on examples.** A rule idea from a paper or another scanner ships only after it stays quiet on the live registry.
+10. **Who decides matters.** The same "write this into CLAUDE.md" is low when the user asked for it and medium when the server decides on its own.
+11. **The crawler never uses credentials.** Not your OAuth logins, not tokens; it measures what anyone could see.
+12. **Re-score, don't mix.** After a rule change every stored snapshot is re-graded, so published numbers always come from one rule set.
 
 ## 10. Next technical steps
 
-1. ~~OSV integration~~ ✅ done (`SM-11`, `SM-12`, pre-spawn malware block, `crawl advisories`).
-2. ~~Rename our IDs~~ ✅ done (`MCP-xx` → `SM-xx`, report schema 2.0.0).
-3. **Publish the corpus**: the real-world false positives plus known attacks as a benchmark set.
-4. **OAuth** in `client.py` (the SDK has an OAuth client provider), so the 36% of auth-gated servers become scannable.
-5. **Optional LLM judge** behind the existing hook, only for ambiguous hits.
-6. **Session proxy** (later): the only way to catch Deadbugz-style payloads that change mid-session.
+Done since the first version: OSV integration (`SM-11`, `SM-12`), `SM-xx` IDs, OAuth login, cloud crawl, consent-graded agent-config rule, rules from the landscape studies, probing auth-declared endpoints, automatic re-scoring.
+
+1. **Measure precision on public data**: run the rules on benchmark sets of benign hard negatives (e.g. InjecGuard *NotInject*, MIT) and publish the false-positive rate.
+2. **Public dashboard**: the daily changes feed and ecosystem numbers, generated by the crawl.
+3. **Schema vs description contradictions**: a "read-only" tool whose input schema has `write_mode: true`.
+4. **Crawler probe robustness**: transport fallback (HTTP ↔ SSE), protocol-version retry, `tools/list` pagination limits.
+5. **Publish the corpus**: real-world false positives plus known attacks, as a benchmark any scanner can be measured against.
+6. **Optional LLM judge** behind the existing hook, only for ambiguous hits.
+7. **Session proxy** (later): the only way to catch payloads that change mid-session.
 
 ---
 Sources: [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/) · [Nordic APIs guide](https://nordicapis.com/guide-to-the-owasp-mcp-top-10/) · [Cisco mcp-scanner](https://blogs.cisco.com/ai/securing-the-ai-agent-supply-chain-with-ciscos-open-source-mcp-scanner) · [Scanner comparison (AgenticWire)](https://www.agenticwire.news/article/mcp-security-scanners-comparison) · [Snyk Agent Scan (appsecsanta)](https://appsecsanta.com/mcp-scan) · [OSV malicious packages (OpenSSF)](https://openssf.org/?p=11003) · [Deadbugz (Pillar Security)](https://www.pillar.security/blog/deadbugz-currently-active-mcp-supply-chain-campaign)

@@ -41,7 +41,8 @@ get the next free number and an entry in `report.RULES_META` and `report.OWASP_F
 ## Crawler etiquette
 
 If you touch the crawler, keep its rules: public addresses only, list calls only (never
-`tools/call`), per-host limits, no package execution. Crawl output names third-party
+`tools/call`), per-host limits, no credentials (never stored logins or tokens), no package
+execution. Crawl output names third-party
 servers; don't commit it (`reports/` is gitignored).
 
 ## Benchmarks

@@ -69,7 +69,7 @@ sniffmcp crawl run --output reports/crawl.md    # ecosystem crawler (see below)
 
 ### Servers that need a login (OAuth)
 
-About a third of MCP servers require OAuth. Log in once; later scans, `fleet` and `watch` reuse it:
+About a quarter of public MCP servers require a login. For OAuth servers, log in once; later scans, `fleet` and `watch` reuse it ([docs/oauth.md](docs/oauth.md)):
 
 ```bash
 sniffmcp login https://mcp.example.com/mcp     # or the name of a server in your client config
@@ -136,7 +136,7 @@ commands need `SNIFFMCP_ALLOW_COMMANDS=1`. HTTP mode binds to localhost only.
 
 | ID | What it catches | OWASP MCP Top 10 |
 |---|---|---|
-| INJ-HEUR | Instruction overrides, self-referential concealment ("don't tell the user about this step"), paired fake `<IMPORTANT>` tags, credential-path targeting, exfiltration ("send the contents of X to https://…"), base64 payloads, hidden Unicode, instructions to write into the agent's own config (skills, CLAUDE.md, AGENTS.md). Covers descriptions, titles and every nested parameter description | MCP03, MCP06 |
+| INJ-HEUR | Instruction and safety overrides, concealment ("don't tell the user about this step", "tell the user only that it succeeded"), fake `<IMPORTANT>` tags and hidden `<!-- -->` directives, context smuggling ("add the entire conversation to the notes parameter"), credential-path targeting, exfiltration, base64 payloads, hidden Unicode and terminal escapes, writing into or installing code into the agent's own config (graded by whether the user asked). Covers descriptions, titles and every nested parameter description. Full list: [docs/detection.md](docs/detection.md) | MCP03, MCP06 |
 | SM-01 | The same, in server-level instructions | MCP03, MCP06 |
 | SM-02 | Credentials in args or URLs (high), or in config env/headers (medium). `${VAR}` references are fine | MCP01 |
 | SM-03 | Post-install drift: risky / breaking / benign | MCP03, MCP04 |
@@ -160,10 +160,14 @@ Scoring: 100 minus severity-weighted deductions (25/15/8/3, at most two per chec
 A scanner that flags everything gets uninstalled. Two rules govern detection here:
 
 1. **Popular legitimate servers must grade A/B.** Being able to write files or run commands is reported, not punished.
-2. **Every rule must stay silent on the real-world false-positive corpus** in `tests/test_checks.py`: 35 descriptions from live registry servers that once fooled a rule, such as accuracy instructions like "never tell the user the payment cleared", Persian text with zero-width joiners, contact links, public SSH keys, and security tools that *quote* attack phrases.
+2. **Every rule must stay silent on the real-world false-positive corpus** in `tests/test_checks.py`: 36 descriptions from live registry servers that once fooled a rule, such as accuracy instructions like "never tell the user the payment cleared", Persian text with zero-width joiners, contact links, public SSH keys, and security tools that *quote* attack phrases.
 
-On the 10,409 reachable servers in the official registry (2026-10-09), sniffmcp raises
-high/critical findings on 2. Both were checked by hand and both are real.
+3. **Every new rule is run over the whole live registry before it ships** (11,951 reachable servers
+   on 2026-10-11). Rules that fire on normal servers are narrowed or dropped.
+
+On the first crawl (2026-10-09, 10,409 reachable servers), sniffmcp raised high/critical findings
+on 2. Both were checked by hand, both were real, and both maintainers fixed them after a private
+report.
 
 ## Ecosystem crawler
 
@@ -187,56 +191,38 @@ past malware in four registry packages: three from the Shai-Hulud worm campaigns
 "local-only" scanner. Those versions are already gone from npm metadata. Only a crawler running
 *during* an attack records what happened.
 
-**Crawler rules:**
-- Probes public addresses only. Registry entries are untrusted, so nothing that resolves to loopback, LAN or cloud metadata is contacted.
-- List calls only; it never calls a tool.
-- At most 1 probe per endpoint per 20h, 2 at a time per host, 100 per host per run.
-- Endpoints that declare required auth are recorded but not probed.
-- Packages are never downloaded or executed.
-- Data stays local (`~/.sniffmcp/crawl.db`).
+**Crawler rules:** list calls only, public addresses only (SSRF guard), at most one probe per
+endpoint per 20h, no credentials ever (endpoints that declare auth are probed without it and re-checked
+weekly if they refuse), packages never downloaded or executed.
 
-Daily, self-healing (catches up after sleep or shutdown instead of losing the day):
-
-```cron
-*/30 * * * * SNIFFMCP_BACKUP_DIR=/path/to/backups /path/to/sniffmcp/scripts/daily-crawl.sh
-@reboot sleep 180 && SNIFFMCP_BACKUP_DIR=/path/to/backups /path/to/sniffmcp/scripts/daily-crawl.sh
-```
-
-`scripts/daily-crawl.sh` crawls only when the last successful crawl is over 20 hours old, never runs
-twice at once, and (with `SNIFFMCP_BACKUP_DIR`) keeps a consistent copy of `crawl.db` for the last 7 days.
-A failed stage (e.g. the registry being down) doesn't abort the run, and every run is recorded:
-
-```bash
-sniffmcp crawl status     # health, days covered, gaps, recent runs and which stages failed
-```
-
-**Without a laptop:** `scripts/github-crawl.yml` runs the same crawl daily on GitHub Actions from
-a private repo you own, storing each day's database as a release there (no access token needed,
-logs stay private, failed runs email you). This is how the reference dataset is collected.
-
-On **WSL**, cron only runs while WSL is open. `scripts/windows-task.xml` is a Task Scheduler template
-that starts the wrapper hidden at logon, every 30 minutes, and daily (waking the PC), and
-`scripts/notify-windows.sh` shows a Windows notification when a crawl fails or goes stale.
+It runs daily on GitHub Actions from a private repo (`scripts/github-crawl.yml`, no token needed) or
+on a laptop with `scripts/daily-crawl.sh`, which catches up after sleep. Method, definitions and
+current numbers: **[docs/crawler.md](docs/crawler.md)**.
 
 ## How it compares
 
 We learned a lot from the tools already here, and recommend them for what they do best:
 
-| | sniffmcp | [Snyk Agent Scan](https://github.com/snyk/agent-scan) (ex-Invariant mcp-scan) | [Cisco mcp-scanner](https://github.com/cisco-ai-defense/mcp-scanner) | [MCP-Sentinel](https://github.com/BashaarJavaid/MCP-Sentinel) |
-|---|---|---|---|---|
-| Scans | Installed servers, live | Installed servers, live | Servers/tools, live | Server **source** in CI |
-| Detection | Precision-tuned rules + OSV | Hosted analysis + rules | YARA + LLM judge + Cisco AI Defense | AST, Semgrep, LLM, Docker probes |
-| Account / upload | **None, fully local** | Snyk token; tool data sent to Snyk | Local YARA; APIs optional | LLM key for full value |
-| Drift | **Classified**, alert once | Hash pinning | Rug-pull checks | CI baselines |
-| Malware feed | OSV, **checked before launch** | Snyk platform | — | — |
-| Ecosystem dataset | **Daily registry crawl with history** | — | — | — |
-| Sees handler code | ❌ | ❌ | Partly | ✅ |
-| Maturity | New | Most mature (3k+ ★) | ~1k ★ | Early |
+| | sniffmcp | [Snyk Agent Scan](https://github.com/snyk/agent-scan) (ex-Invariant mcp-scan) | [Cisco mcp-scanner](https://github.com/cisco-ai-defense/mcp-scanner) | [NVIDIA SkillSpector](https://github.com/NVIDIA/SkillSpector) | [MCP-Sentinel](https://github.com/BashaarJavaid/MCP-Sentinel) |
+|---|---|---|---|---|---|
+| Scans | Installed MCP servers, live | Installed servers, live | Servers/tools, live | Agent **skills** | Server **source** in CI |
+| Detection | Precision-first rules + OSV | Hosted analysis + rules | YARA + LLM judge + Cisco AI Defense | Regex, AST, taint, YARA, optional LLM (recall-first) | AST, Semgrep, LLM, Docker probes |
+| Account / upload | **None, fully local** | Snyk token; tool data sent to Snyk | Local YARA; APIs optional | Local | LLM key for full value |
+| Drift | **Classified**, alert once | Hash pinning | Rug-pull checks | — | CI baselines |
+| Malware feed | OSV, **checked before launch** | Snyk platform | — | OSV | — |
+| Ecosystem dataset | **Daily registry crawl with history** | — | — | — | — |
+| Sees handler code | ❌ | ❌ | Partly | ✅ (skill scripts) | ✅ |
+| Maturity | New | Most mature (3k+ ★) | ~1k ★ | ~20k ★ | Early |
 
 Head-to-head on the same 10,409 registry servers (`scripts/benchmark_yara.py`): Cisco's YARA
 rules flag 17% of servers, and the hand-checked samples are mostly noise ("assert" triggers
 code execution, "benchmark" triggers SQL injection). But they surfaced one pattern we had missed,
-which is now a rule. Use more than one tool.
+which is now a rule. Several of our newer rules also started as ideas from SkillSpector and
+Cisco's skill-scanner. Use more than one tool.
+
+For a verifiable record of what registry servers served each night, see
+[mcp-transparency-log](https://github.com/yassinht/mcp-transparency-log): a signed Merkle log, a
+different and complementary approach.
 
 ## Known limits
 
@@ -249,12 +235,15 @@ which is now a rule. Use more than one tool.
 
 ## Roadmap
 
+- Published false-positive rate on public benchmark data
+- A public dashboard of the daily ecosystem changes
 - A public benchmark corpus (known attacks + real-world false positives) any scanner can be measured against
 - Optional LLM second opinion for ambiguous text (the hook exists: `analyze_descriptions(llm_hook=…)`)
 - A session proxy to catch payloads that only appear mid-session
 
 ## Docs
 
+- **[docs/](docs/README.md)**: getting started, every check and rule, watching for changes, the GitHub Action, OAuth, and the crawler's method
 - [ARCHITECTURE.md](ARCHITECTURE.md): how it works, with diagrams, the OWASP mapping, and design decisions
 - [CONTRIBUTING.md](CONTRIBUTING.md): dev setup and the rules every detection change must pass
 - [SECURITY.md](SECURITY.md): reporting a vulnerability, and how crawl findings are disclosed
