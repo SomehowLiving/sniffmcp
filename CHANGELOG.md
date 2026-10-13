@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+- "Encoded payload" no longer fires on base64 that decodes to binary data. A tool's documented example
+  input (an OpenTimestamps proof) was flagged as a hidden payload by the 2026-10-13 crawl and, because
+  the tool was new, raised a critical drift alert. A hidden instruction has to decode to readable text;
+  base64 that decodes to mostly non-printable bytes is now treated as data. After the fix the rule has
+  0 hits on the 14,467 crawled servers, and an encoded instruction is still caught.
+
 ### Added
 - Detection rules learned from NVIDIA SkillSpector, Cisco skill-scanner and Agent Threat Rules:
   **safety override** ("ignore all safety guidelines"), **context smuggling** ("add the entire

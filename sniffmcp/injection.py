@@ -7,7 +7,7 @@ URL are normal; "do not tell the user" is not). Every rule is run against the
 benign corpus in tests/ before it ships.
 """
 from __future__ import annotations
-import re
+import base64, binascii, re
 from .models import Finding
 
 # (label, severity, regex). Order is irrelevant; each rule fires at most once per text.
@@ -132,7 +132,17 @@ def looks_encoded(s: str) -> bool:
     word lists and long identifiers don't."""
     if re.fullmatch(r"[0-9a-fA-F]+", s) or s.count("/") > len(s) / 25:
         return False
-    return bool(re.search(r"[a-z]", s) and re.search(r"[A-Z]", s) and re.search(r"[0-9]", s))
+    if not (re.search(r"[a-z]", s) and re.search(r"[A-Z]", s) and re.search(r"[0-9]", s)):
+        return False
+    # A hidden instruction has to decode to text the model can read. Base64 of binary data
+    # (an OpenTimestamps proof shown as a tool's example input, seen 2026-10-13) is just data.
+    body = s.rstrip("=")
+    try:
+        raw = base64.b64decode(body[: len(body) // 4 * 4], validate=True)
+    except (binascii.Error, ValueError):
+        return True
+    printable = sum(32 <= c < 127 or c in (9, 10, 13) for c in raw)
+    return printable >= 0.85 * len(raw)
 
 
 # Invisible / direction-control characters have no business in text a model reads:
