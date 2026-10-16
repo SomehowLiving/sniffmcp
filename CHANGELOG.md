@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Fixed
+- Drift alerts now take the severity of the indicator they introduce. Any new text hit used to make a
+  "gained injection indicators" change **critical**, so a reworded usage note ("e.g. to get an app's
+  store ID before calling other tools", a medium cross-tool hint) paged as a rug pull on 2026-10-16.
+  New critical/high indicators still raise a critical change; a new medium hint is a medium risky
+  change for the weekly review.
 - "Encoded payload" no longer fires on base64 that decodes to binary data. A tool's documented example
   input (an OpenTimestamps proof) was flagged as a hidden payload by the 2026-10-13 crawl and, because
   the tool was new, raised a critical drift alert. A hidden instruction has to decode to readable text;

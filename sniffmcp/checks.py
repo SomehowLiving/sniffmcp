@@ -172,6 +172,14 @@ def _same_site(url: str, server_url: str | None) -> bool:
     return bool(a) and _site(a) == _site(b)
 
 
+def _drift_severity(hits) -> str:
+    """A change is as serious as the indicator it introduced: a new critical/high indicator pages
+    you (critical); a new medium hint ("before calling other tools", seen 2026-10-16 in a reworded
+    usage note) is a medium risky change for the weekly review, not a page."""
+    sevs = {h[1] for h in hits}
+    return "critical" if sevs & {"critical", "high"} else "medium" if "medium" in sevs else "low"
+
+
 def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
     """SM-03: drift vs a stored baseline, classified so benign updates don't page anyone.
       risky      -> new injection indicators; a tool *relaxing* to read-only / non-destructive
@@ -193,7 +201,7 @@ def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
         hits = [h for _, text in tool_texts(t) for h in scan_text(text)]
         caps = tool_capability(t) & {"destructive", "exec", "sensitive"}
         if hits:
-            out.append(Finding("SM-03", "critical", f"New tool '{name}' arrived with injection indicators",
+            out.append(Finding("SM-03", _drift_severity(hits), f"New tool '{name}' arrived with injection indicators",
                 "; ".join(f"{l}: …{s}…" for l, _, s in hits[:3]),
                 "This is the rug-pull pattern. Remove the server until reviewed.", tool_name=name, kind="risky"))
         elif caps:
@@ -217,7 +225,7 @@ def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
                          for k, v in new_texts.items() if v != old_texts.get(k, ""))
         new_hits = [h for h in scan_text(added) if h[0] not in {x[0] for t in old_texts.values() for x in scan_text(t)}]
         if new_hits:
-            out.append(Finding("SM-03", "critical", f"Tool '{name}' metadata changed and gained injection indicators",
+            out.append(Finding("SM-03", _drift_severity(new_hits), f"Tool '{name}' metadata changed and gained injection indicators",
                 "; ".join(f"{l}: …{s}…" for l, _, s in new_hits[:3]),
                 "Description mutation after install is the Deadbugz pattern. Stop using this server and review.",
                 tool_name=name, kind="risky"))
