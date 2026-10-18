@@ -17,6 +17,14 @@ from .models import Finding, canonical_manifest_hash
 from .state import Store
 
 ALERT_SEVERITIES = ("critical", "high")
+ALERT_KINDS = ("risky", "capability")   # gate what matters: these push even at medium/low
+
+
+def _surface(manifest: dict) -> list[dict]:
+    """What gets pinned: every tool plus the server instructions (model-visible too), as the
+    crawler does. Instructions ride along as a pseudo-tool so the same drift rules apply."""
+    instr = manifest.get("instructions") or ""
+    return ([{"name": "__instructions__", "description": instr}] if instr else []) + manifest["tools"]
 
 
 async def check_watch(store: Store, watch: dict) -> list[Finding]:
@@ -28,7 +36,7 @@ async def check_watch(store: Store, watch: dict) -> list[Finding]:
         store.log_alert(watch["id"], f.severity, f.title + " | " + f.evidence)
         store.record_check(watch["id"])
         return [f]
-    tools = manifest["tools"]
+    tools = _surface(manifest)
     new_hash = canonical_manifest_hash(tools, manifest.get("resources"), manifest.get("prompts"))
     previous_hash = store.last_snapshot_hash(watch["id"])
     store.record_snapshot(watch["id"], new_hash, tools)
@@ -46,7 +54,7 @@ async def check_watch(store: Store, watch: dict) -> list[Finding]:
     if new_hash != previous_hash:  # first time we see this version: alert once
         for f in findings:
             store.log_alert(watch["id"], f.severity, f"[{f.kind or 'change'}] {f.title} | {f.evidence}")
-            if f.severity in ALERT_SEVERITIES:
+            if f.severity in ALERT_SEVERITIES or f.kind in ALERT_KINDS:
                 _push(watch.get("alert_webhook"), watch["name"], f)
     return findings
 
@@ -57,7 +65,7 @@ async def accept(store: Store, name: str) -> bool:
     if not watch:
         return False
     manifest = await fetch_manifest(json.loads(watch["config"]))
-    tools = manifest["tools"]
+    tools = _surface(manifest)
     store.set_baseline(watch["id"], canonical_manifest_hash(tools, manifest.get("resources"),
                                                             manifest.get("prompts")), tools)
     return True

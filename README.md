@@ -16,7 +16,7 @@ you what's risky:
 - 🔑 **Plaintext credentials** in your client config (always redacted in output)
 - 📌 **Unpinned launches** (`npx pkg`, `uvx pkg`, `image:latest`)
 - ⚙️ **Powerful capabilities** worth keeping approval on, and annotations that misstate a tool as read-only
-- 🧬 **Post-install changes** (rug pulls), classified as *risky*, *breaking* or *benign*, so a wording tweak doesn't page you and a new hidden instruction does
+- 🧬 **Post-install changes** (rug pulls): pins the whole tool surface (names, schemas, descriptions, prompts, instructions) and classifies every change as *risky*, *capability*, *breaking* or *benign*. Only risky and capability changes alert, so a wording tweak doesn't page you and a new hidden instruction does. Version numbers don't help here: in our crawl, 73% of definition changes came with no version bump ([why](docs/watching.md#pin-everything-gate-what-matters))
 
 No account. Nothing uploaded. One runtime dependency (the official MCP SDK).
 

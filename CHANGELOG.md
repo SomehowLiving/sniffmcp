@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Fixed
+- `watch` now pins **server instructions** as well as tools, resources and prompts (the crawler already
+  did). An instructions-only rug pull used to go unnoticed. After upgrading, the first check of an
+  existing watch reports the instructions as newly pinned; review and `--accept`.
+- `watch` webhooks now fire for every **risky** and **capability** change, not only critical/high
+  findings. A new delete or exec tool (low/medium) never reached the webhook before, although the design
+  is "gate risky + capability, log the rest".
 - Drift alerts now take the severity of the indicator they introduce. Any new text hit used to make a
   "gained injection indicators" change **critical**, so a reworded usage note ("e.g. to get an app's
   store ID before calling other tools", a medium cross-tool hint) paged as a rug pull on 2026-10-16.

@@ -16,10 +16,41 @@ sniffmcp watch --name memory --accept    # accept the current version as the new
    plus a hash.
 2. Every interval, SniffMCP lists the server again. If the hash matches, nothing happens.
 3. If it differs, each change is **classified** (below). Alerts for a given version are sent once;
-   critical and high ones go to the webhook.
+   risky and capability changes go to the webhook, whatever their severity.
 4. After you review, `--accept` makes the current version the baseline.
 
 State lives in `~/.sniffmcp/state.db`.
+
+## Pin everything, gate what matters
+
+The obvious defence against rug pulls is to hash each tool at approval and refuse any call whose hash
+has moved. SniffMCP does pin the full surface, but the crawl data shows why *blocking on every change*
+backfires:
+
+- **Versions don't tell you.** In the Oct 9–12 crawl, 73% of tool-definition changes came with no bump
+  in either the registry version or the server's own `serverInfo.version`. Pinning a version number
+  doesn't pin what the model reads; you have to hash the definitions themselves.
+- **Changes are frequent.** About 3.6% of public servers changed their definitions on a given night.
+  With ~10 servers installed, that's roughly a 31% chance per night that at least one changed, or a
+  re-approval prompt every ~3 days. (A rough estimate: it assumes servers change independently, and in
+  reality a few busy servers change far more often than most.)
+- **Most changes are harmless.** Of the 1,939 changes on Oct 10, 70% were wording edits and 28% were
+  breaking (a removed tool or a new required parameter).
+
+If every one of those needs a human to approve it, people stop reading the prompts, and the gate stops
+protecting anyone. So SniffMCP:
+
+| Change class | What SniffMCP does | What a client should do |
+|---|---|---|
+| **risky** (new injection indicator, a tool now claiming to be read-only, a new off-site URL) | alert | block until re-approved |
+| **capability** (new delete / exec / secret-reading tool) | alert | block until re-approved |
+| **breaking** (tool removed, new required parameter) | log | nothing: the call fails on its own; it's a reliability issue, not a safety one |
+| **benign** (wording, own-site links, new harmless tool) | log | accept and log |
+
+SniffMCP runs beside your client, not between the client and the server, so today it **alerts; it
+doesn't block**. Two ways to close that gap are on the roadmap: a `--quarantine` option that disables a
+server in your client config when a risky or capability change arrives, until you accept the diff
+(effective from the next session), and later a proxy mode that can fail closed mid-session.
 
 ## Classification
 
