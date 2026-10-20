@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Fixed
+- Re-scanning all 17,796 current registry servers with today's rules ("is anything already wrong?")
+  raised 6 non-spam high/critical leads; all were benign, and the rules were narrowed. The before/after
+  comparison over the whole corpus changed exactly these cases and no others:
+  - Hidden characters are split. Tag characters (ASCII smuggling), bidi overrides/isolates and terminal
+    escapes stay **critical**. Zero-width spaces, word joiners and BOMs, which hide no text (copy-paste
+    leftovers in English descriptions), are reported as low "invisible characters". LRM/RLM direction
+    marks join ZWNJ/ZWJ as ordinary in Persian, Arabic and Hebrew text.
+  - A paired `<important>` / `<system>` tag alone is **medium** ("<important>Citation required…</important>"
+    is emphasis); with any other serious indicator it still compounds to critical.
+  - "Override guardrails" needs a qualifier (all/any/your/safety…): "Override guardrails when
+    synthesize=true" documents a product setting.
+  - Concealment and outcome-deception phrases are skipped inside a scanner's list of what it detects
+    ("Finds instructions aimed at the model (…, hide this from the user, …)").
 - Drift noise, measured on every change the crawl has stored (Oct 9–19): "risky" went from 176 to 59
   with no real threat among the 117 removed.
   - New off-site URLs are now found by comparing complete URLs in the old and new text. They used to be

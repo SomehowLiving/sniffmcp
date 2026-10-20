@@ -39,14 +39,17 @@ RULES: list[tuple[str, str, re.Pattern]] = [
         r"|\.bash_history|\.zsh_history|\.git-credentials|\.docker/config\.json|/etc/shadow"
         r"|\.(cursor|vscode)/mcp\.json|claude_desktop_config\.json|\.claude\.json)")),
     # paired tags only: "<system>:<id>" placeholders and "[Admin]" labels are common (seen in the wild)
-    ("fake privileged tag", "high", re.compile(
+    # Medium alone: servers use <important> for emphasis ("<important>Citation required…", 2026-10-20).
+    # With any other serious indicator it compounds to critical (the Invariant proof of concept).
+    ("fake privileged tag", "medium", re.compile(
         r"(?is)<\s*(important|system|instructions?)\s*>.{3,}?<\s*/\s*\1\s*>|\[\s*system\s*\]\s*[:\-]")),
     # Rules below added 2026-10-11 from studying NVIDIA SkillSpector, Cisco skill-scanner and ATR.
     # Each was run over the 11,951 servers in the crawl first: the first four had zero hits.
     ("safety override", "critical", re.compile(
         r"(?i)\b(ignore|disregard|override|bypass|disable|forget)\s+(all\s+|any\s+)?(the\s+|your\s+)?(safety|security)\s+"
         r"(rules?|guidelines?|polic(y|ies)|restrictions?|guardrails?|checks?|instructions?)"
-        r"|\b(ignore|disregard|override|bypass)\s+(all\s+|any\s+|your\s+)?guardrails?\b")),
+        # a qualifier is required: "Override guardrails when synthesize=true" documents a product setting
+        r"|\b(ignore|disregard|override|bypass)\s+(all|any|your|the\s+model'?s|its|safety)\s+guardrails?\b")),
     # classic tool poisoning: get the agent to put the conversation into a tool argument
     ("context smuggling", "high", re.compile(
         r"(?i)\b(add|include|pass|concatenate|append|put)\s+(the\s+)?(entire|full|whole|complete)?\s*(conversation(\s+history)?"
@@ -91,7 +94,8 @@ RULES: list[tuple[str, str, re.Pattern]] = [
 # as a pattern it detects, or "never allow X to override system rules") is not an attack.
 MENTION_BEFORE = re.compile(
     r"(?i)([\"'“‘(/`]\s*$|\b(never|not|don't|do not)\s+(allow|let)\b[^.]{0,40}$"
-    r"|\b(detect|detects|flag|flags|block|blocks|catch|catches|against|patterns?|phrases?|phrasing|such as|e\.g\.|like|attempts?\s+to)\b[^.]{0,60}$)")
+    r"|\b(detect|detects|flag|flags|block|blocks|catch|catches|finds?|spots?|identif(y|ies)|recogni[sz]es?|scans?\s+for"
+    r"|against|patterns?|phrases?|phrasing|such as|e\.g\.|like|attempts?\s+to)\b[^.]{0,100}$)")
 MENTION_RULES = {"instruction override", "role reassignment", "safety override", "hidden comment directive",
                  "tool precedence claim", "context smuggling"}
 
@@ -148,9 +152,12 @@ def looks_encoded(s: str) -> bool:
 # Invisible / direction-control characters have no business in text a model reads:
 # zero-width, bidi overrides, Unicode tag characters (ASCII smuggling), and terminal
 # escape sequences (ESC/BEL can rewrite what a terminal shows; ATR-2026-00259).
+# Characters that can hide or reorder content: Unicode tag characters (ASCII smuggling), bidi
+# overrides/isolates, terminal escapes. Critical.
+SMUGGLING_CHARS = re.compile("[\x1b\x07\u202a-\u202e\u2066-\u2069\U000e0000-\U000e007f]")
 HIDDEN_CHARS = re.compile("[\x1b\x07​-‏‪-‮⁠-⁤⁦-⁩﻿\U000e0000-\U000e007f]")
 
-JOINER_SCRIPTS = re.compile("[\u0600-\u06ff\u0750-\u077f\u0900-\u0dff\U0001f300-\U0001faff]")
+JOINER_SCRIPTS = re.compile("[\u0590-\u05ff\u0600-\u06ff\u0750-\u077f\u0900-\u0dff\U0001f300-\U0001faff]")
 LONG_DESCRIPTION = 2500
 
 
@@ -171,8 +178,9 @@ def _counts(label: str, text: str, m: re.Match) -> bool:
     if label in MENTION_RULES or label in ("concealment from user", "outcome deception"):
         if _inside_quoted_example(text, m.start()):
             return False
-    if label in MENTION_RULES:
-        return not MENTION_BEFORE.search(text[max(0, m.start() - 80):m.start()])
+    if label in MENTION_RULES or label in ("concealment from user", "outcome deception"):
+        # a scanner listing what it detects ("… fake system turns, hide this from the user …")
+        return not MENTION_BEFORE.search(text[max(0, m.start() - 120):m.start()])
     return True
 
 
@@ -191,14 +199,23 @@ def scan_text(text: str, user_invoked: bool = False) -> list[tuple[str, str, str
             hits.append((label, sev, text[a:b].replace("\n", " ")))
     hidden = HIDDEN_CHARS.findall(text)
     if hidden and JOINER_SCRIPTS.search(text):
-        # ZWNJ/ZWJ are ordinary in Persian, Arabic, Indic scripts and emoji sequences
-        hidden = [c for c in hidden if c not in "\u200c\u200d"]
-    if hidden:
-        codes = sorted({f"U+{ord(c):04X}" for c in hidden})
-        hits.append(("hidden unicode characters", "critical", f"{len(hidden)} chars: {', '.join(codes[:6])}"))
+        # ZWNJ/ZWJ and the LRM/RLM direction marks are ordinary in Persian, Arabic, Hebrew, Indic
+        # scripts and emoji sequences
+        hidden = [c for c in hidden if c not in "\u200c\u200d\u200e\u200f"]
+    smuggling = [c for c in hidden if SMUGGLING_CHARS.match(c)]
+    stray = [c for c in hidden if not SMUGGLING_CHARS.match(c)]
+    if smuggling:
+        codes = sorted({f"U+{ord(c):04X}" for c in smuggling})
+        hits.append(("hidden unicode characters", "critical", f"{len(smuggling)} chars: {', '.join(codes[:6])}"))
+    elif stray:
+        # zero-width spaces etc. carry no hidden text (copy-paste leftovers, 2026-10-20); they can
+        # still split a keyword to dodge filters, so they're reported, at low
+        codes = sorted({f"U+{ord(c):04X}" for c in stray})
+        hits.append(("invisible characters", "low", f"{len(stray)} chars: {', '.join(codes[:6])}"))
     # Independent indicators in one text compound: a fake <IMPORTANT> tag on its own
     # might be sloppy docs, but a tag plus a credential path is an attack.
-    serious = {label for label, sev, _ in hits if sev in ("critical", "high") or label == "sensitive file target"}
+    serious = {label for label, sev, _ in hits
+               if sev in ("critical", "high") or label in ("sensitive file target", "fake privileged tag")}
     if len(serious) >= 2 and not any(sev == "critical" for _, sev, _ in hits):
         hits.append(("multiple injection indicators", "critical", ", ".join(sorted(serious))))
     return hits
