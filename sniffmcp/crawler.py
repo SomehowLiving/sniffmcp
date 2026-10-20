@@ -423,10 +423,20 @@ def digest(db: CrawlDB, hours: int = 26, weekly: bool = False) -> tuple[str, boo
                "AND severity='high' ORDER BY published_at DESC", since_iso)
     mal = db.q("SELECT ecosystem, name, vuln_id, summary, affects_latest FROM package_advisories "
                "WHERE kind='malware' AND first_seen>?", since)
+    # "Already wrong" on arrival: a server seen for the first time in this window whose first snapshot
+    # has high/critical findings never shows up as a *change*. (Duplicate tool names, SM-08, is the
+    # bulk-clone pattern already tracked separately.)
+    arrived = []
+    for r in db.q("SELECT e.server_name, s.findings FROM snapshots s JOIN endpoints e ON e.id=s.endpoint_id"
+                  " WHERE s.taken_at>? AND s.id=(SELECT MIN(id) FROM snapshots WHERE endpoint_id=s.endpoint_id)", since):
+        bad = [f for f in json.loads(r["findings"] or "[]")
+               if f["severity"] in ("high", "critical") and f["check_id"] != "SM-08"]
+        if bad:
+            arrived.append((r["server_name"], bad[0]["title"]))
     # Email-worthy only: high/critical drift, new malware, or an unhealthy crawl. Medium drift and
     # package signals (hundreds of provenance drops are normal) wait for the weekly summary.
     urgent = [c for c in risky if c["severity"] in ("high", "critical")]
-    notable = bool(urgent or mal) or not health.startswith("crawl health: OK") or last_run in ("failed", "partial")
+    notable = bool(urgent or mal or arrived) or not health.startswith("crawl health: OK") or last_run in ("failed", "partial")
     if not weekly:
         risky, pkg = urgent, []
     head = "📅 Weekly summary" if weekly else ("🚨 Needs a look" if notable else "✅ Quiet day")
@@ -438,6 +448,10 @@ def digest(db: CrawlDB, hours: int = 26, weekly: bool = False) -> tuple[str, boo
         L += ["**Risky manifest changes** (verify by hand before acting):"]
         L += [f"- `{c['server_name']}`: {c['title'][:120]}" for c in risky[:10]]
         L += [f"- …and {len(risky) - 10} more" if len(risky) > 10 else ""]
+    if arrived:
+        L += ["**New servers that arrived with serious findings** (verify by hand):"]
+        L += [f"- `{n}`: {t[:120]}" for n, t in arrived[:10]]
+        L += [f"- …and {len(arrived) - 10} more" if len(arrived) > 10 else ""]
     if mal:
         L += ["**New malware advisories (OSV):**"]
         L += [f"- `{m['ecosystem']}:{m['name']}` {m['vuln_id']}" + (" ⚠️ affects latest" if m["affects_latest"] else "")
