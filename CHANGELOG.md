@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Fixed
+- Drift noise, measured on every change the crawl has stored (Oct 9–19): "risky" went from 176 to 59
+  with no real threat among the 117 removed.
+  - New off-site URLs are now found by comparing complete URLs in the old and new text. They used to be
+    pulled from diff fragments, which chopped them ("https://docs.") so they never matched the
+    server's own site. Template and placeholder URLs (`<owner>`, `{id}`, `example.com`, `https://url`,
+    `localhost`) are ignored.
+  - A tool's annotations relaxing to read-only is **risky (high)** only when its name says delete or
+    exec. Otherwise it is logged as a probable correction: all 76 such changes were servers fixing
+    over-cautious "destructive" hints.
 - `watch` now pins **server instructions** as well as tools, resources and prompts (the crawler already
   did). An instructions-only rug pull used to go unnoticed. After upgrading, the first check of an
   existing watch reports the instructions as newly pinned; review and `--accept`.

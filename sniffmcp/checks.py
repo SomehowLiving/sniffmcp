@@ -149,6 +149,16 @@ def _drift_text_added(old: str, new: str) -> str:
     return " ".join(new[j1:j2] for op, _, _, j1, j2 in sm.get_opcodes() if op in ("insert", "replace"))
 
 
+PLACEHOLDER_URL = re.compile(r"[<{]|\$\{|example\.(com|org|net)|your[-_]|\.\.\.|…"
+                             r"|^https?://(localhost|[^./:]+)(?=[:/]|$)")   # no dot in the host: https://url
+
+
+def _urls(text: str) -> set[str]:
+    """Complete URLs in a text, minus templates and examples (`https://github.com/<owner>/<repo>`)."""
+    found = (u.rstrip(".,;:") for u in re.findall(r"https?://[^\s)\"'`]+", text))
+    return {u for u in found if not PLACEHOLDER_URL.search(u)}
+
+
 def _required(tool: dict) -> set[str]:
     return set((tool.get("inputSchema") or {}).get("required") or [])
 
@@ -230,7 +240,9 @@ def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
                 "Description mutation after install is the Deadbugz pattern. Stop using this server and review.",
                 tool_name=name, kind="risky"))
         elif added.strip():
-            urls = re.findall(r"https?://[^\s)\"']+", added)
+            # Compare whole URLs in the full old vs new text: URLs pulled from diff fragments come out
+            # chopped ("https://docs."), and a chopped URL never matches the server's own site.
+            urls = sorted(_urls(" ".join(new_texts.values())) - _urls(" ".join(old_texts.values())))
             foreign = [u for u in urls if not _same_site(u, ctx.config.get("url"))]
             if foreign:
                 sev, kind, why = "medium", "risky", f"new off-site URL(s): {_short_list(foreign, 3)}"
@@ -255,14 +267,19 @@ def check_rug_pull(ctx: ManifestContext) -> list[Finding]:
         relaxed = (claims_ro or claims_safe) and (explicit_before or powerful_name)
         tightened = (oa.get("readOnlyHint") and not na.get("readOnlyHint")) or \
                     (na.get("destructiveHint") and not oa.get("destructiveHint"))
-        if relaxed:
-            # high only for delete/exec-named tools; other relaxations are usually corrections
-            # (a "Browse" tool fixing an over-cautious hint) and wait for the weekly review
-            out.append(Finding("SM-03", "high" if powerful_name else "medium",
+        if relaxed and powerful_name:
+            out.append(Finding("SM-03", "high",
                 f"Tool '{name}' now claims to be read-only / non-destructive",
                 f"annotations {oa} -> {na}",
                 "Clients may start auto-approving it. Check the tool still does what the new hint says.",
                 tool_name=name, kind="risky"))
+        elif relaxed:
+            # 76 of 76 such changes in the 2026-10-09..19 crawl were corrections of over-cautious hints
+            # ("Estimate audience reach" no longer marked destructive, rename_* tools): log, don't alert
+            out.append(Finding("SM-03", "info",
+                f"Tool '{name}' annotations relaxed (probable correction)",
+                f"annotations {oa} -> {na}", "Worth a glance if you auto-approve read-only tools.",
+                tool_name=name, kind="benign"))
         elif tightened:
             out.append(Finding("SM-03", "low", f"Tool '{name}' now declares itself destructive / not read-only",
                 f"annotations {oa} -> {na}",
